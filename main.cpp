@@ -15,6 +15,10 @@
 #include <bits/stdc++.h>
 #include <SDL2/SDL.h>
 
+#include <netinet/in.h>
+
+#include "BroadCast.h"
+
 using namespace std;
 
 enum direction {
@@ -262,6 +266,19 @@ public:
 
 int main(int argc, char* argv[])
 {
+    BroadcastCatcher c;
+    BroadcastSender s;
+    sockaddr_in lol;
+    int i=0;
+    while (true) {
+        if (c.RecvBroadcast(&lol))
+            break;
+        if (i++ == 5)
+            s.SendBroadcast();
+    }
+    
+    return 0;
+    
     srand(time(NULL));
     if (SDL_Init(SDL_INIT_VIDEO) == 0) {
 //        SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" );

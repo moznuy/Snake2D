@@ -41,6 +41,54 @@ bool operator==(const SDL_Point &a, const SDL_Point &b) {
     return a.x == b.x && a.y == b.y;
 }
 
+
+class Stream {
+    char *stream;
+    size_t size;
+    size_t capacity;
+public:
+    Stream() {
+        stream = nullptr;
+        capacity = 0;
+        Clear();
+    }
+    
+    void Clear() {
+        size = 0;
+    }
+    
+    void Dispose() {
+        if (stream != nullptr)
+            delete[] stream;
+    }
+    
+    void Reserve(size_t capacit) {
+        if (capacit > this->capacity) {
+            char *nw = new char[capacit];
+            if (stream != nullptr) {
+                memcpy(nw, stream, size);
+                delete[] stream;
+            }
+            stream = nw;
+            this->capacity = capacit;
+        }
+    }
+    
+    template<typename T>
+    void Push(const T &info) {
+        if (size + sizeof(T) > capacity) {
+            Reserve(max(size * 2, size + sizeof(T)));
+        }
+        memcpy(stream + size, &info, sizeof(T));
+        size += sizeof(T);
+    }
+    
+    pair<const char*, size_t> Data() const {
+        return make_pair(stream, size);
+    }
+};
+
+
 class Snake {
     vector<SDL_Point> positions;
     direction dir;
@@ -87,6 +135,14 @@ public:
     vector<SDL_Point>& getPositions() {
         return positions;
     }
+    
+    void Serialize(Stream &stream) {
+        stream.Push(positions.size());
+        for (auto &it: positions) {
+            stream.Push(it);
+        }
+        stream.Push(dir);
+    }
 };
 
 class Berry{
@@ -104,6 +160,9 @@ public:
         SDL_RenderDrawLine(renderer, (pos.x + 1)*8, (pos.y)*8 + 4, (pos.x)*8 + 4, (pos.y + 1)*8);
         SDL_RenderDrawLine(renderer, (pos.x)*8 + 4, (pos.y + 1)*8, (pos.x)*8,     (pos.y)*8 + 4);
         SDL_RenderDrawLine(renderer, (pos.x)*8,     (pos.y)*8 + 4, (pos.x)*8 + 4, (pos.y)*8    );
+    }
+    void Serialize(Stream &stream) {
+        stream.Push(pos);
     }
 };
 
@@ -141,6 +200,15 @@ public:
         }
     }
     
+    void Serialize(Stream &stream) {
+        stream.Clear();
+        stream.Push(snakes.size());
+        for (auto &it: snakes) {
+            it.Serialize(stream);
+        }
+        
+        b.Serialize(stream);
+    }
 };
 
 int main(int argc, char* argv[])
@@ -196,6 +264,17 @@ int main(int argc, char* argv[])
                             g.Turn(0, West);
                         if (event.key.keysym.scancode == SDL_SCANCODE_P)
                             g.Grow_tmp(0);
+                        if (event.key.keysym.scancode == SDL_SCANCODE_M) {
+                            Stream stream;
+                            g.Serialize(stream);
+                            ofstream file;
+                            file.open("1.bin", ofstream::binary);
+                            auto ret = stream.Data();
+                            const char *data = ret.first;
+                            size_t length = ret.second;
+                            file.write(data, length);
+                            file.close();
+                        }
                     }
                 }
                 

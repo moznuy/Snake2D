@@ -46,6 +46,7 @@ class Stream {
     char *stream;
     size_t size;
     size_t capacity;
+    size_t pos;
 public:
     Stream() {
         stream = nullptr;
@@ -55,11 +56,23 @@ public:
     
     void Clear() {
         size = 0;
+        pos = 0;
+    }
+    
+    void Set(char *data, size_t length) {
+        Dispose();
+        stream = new char[length];
+        memcpy(stream, data, length);
+        size = capacity = length;
     }
     
     void Dispose() {
-        if (stream != nullptr)
+        if (stream != nullptr) {
             delete[] stream;
+        }
+        stream = nullptr;
+        capacity = 0;
+        Clear();
     }
     
     void Reserve(size_t capacit) {
@@ -81,6 +94,18 @@ public:
         }
         memcpy(stream + size, &info, sizeof(T));
         size += sizeof(T);
+    }
+    
+    void Reset_Read() {
+        pos = 0;
+    }
+    
+    template<typename T>
+    void Pull(T &info) {
+        if (sizeof(T) + pos > size)
+            throw runtime_error("out of bound exception");
+        memcpy(&info, stream + pos, sizeof(T));
+        pos += sizeof(T);
     }
     
     pair<const char*, size_t> Data() const {
@@ -143,6 +168,15 @@ public:
         }
         stream.Push(dir);
     }
+    void Deserialize(Stream &stream) {
+        size_t n;
+        stream.Pull(n);
+        positions.resize(n);
+        for (auto &it: positions) {
+            stream.Pull(it);
+        }
+        stream.Pull(dir);
+    }
 };
 
 class Berry{
@@ -164,6 +198,9 @@ public:
     void Serialize(Stream &stream) {
         stream.Push(pos);
     }
+    void Deserialize(Stream &stream) {
+        stream.Pull(pos);
+    }
 };
 
 class Game {
@@ -180,7 +217,7 @@ public:
             it.Progress();
             if (it.getPositions()[0] == b.getPosition()) {
                 it.Grow();
-                b = Berry({rand() % 100 + 1, rand() % 100 + 2});
+                b = Berry({rand() % 100, rand() % 100});
             }
         }
     }
@@ -209,10 +246,23 @@ public:
         
         b.Serialize(stream);
     }
+    
+    void Deserialize(Stream &stream) {
+        stream.Reset_Read();
+        size_t n;
+        stream.Pull(n);
+        snakes.resize(n);
+        for (auto &it: snakes) {
+            it.Deserialize(stream);
+        }
+        
+        b.Deserialize(stream);
+    }
 };
 
 int main(int argc, char* argv[])
 {
+    srand(time(NULL));
     if (SDL_Init(SDL_INIT_VIDEO) == 0) {
 //        SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" );
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
@@ -254,6 +304,8 @@ int main(int argc, char* argv[])
                         done = SDL_TRUE;
                     }
                     if (event.type == SDL_KEYDOWN) {
+                        if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)
+                            done = SDL_TRUE;
                         if (event.key.keysym.scancode == SDL_SCANCODE_W)
                             g.Turn(0, North);
                         if (event.key.keysym.scancode == SDL_SCANCODE_D)
@@ -274,6 +326,20 @@ int main(int argc, char* argv[])
                             size_t length = ret.second;
                             file.write(data, length);
                             file.close();
+                        }
+                        if (event.key.keysym.scancode == SDL_SCANCODE_L) {
+                            
+                            ifstream file;
+                            file.open("1.bin", ifstream::binary);
+                            file.seekg(0, ifstream::end);
+                            size_t length = file.tellg();
+                            file.seekg(0, ifstream::beg);
+                            vector<char> data(length);
+                            
+                            file.read(data.data(), length);
+                            Stream stream;
+                            stream.Set(data.data(), length);
+                            g.Deserialize(stream);
                         }
                     }
                 }

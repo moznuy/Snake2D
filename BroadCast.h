@@ -16,12 +16,14 @@
 
 #include <cstdint>
 #include <sys/socket.h>
+#include <vector>
 
 // TODO: Close
 class UdpCatcher {
 private:
     int sock;
     uint16_t port;
+    
 public:
     UdpCatcher(uint16_t port);
     bool TryRecv(struct sockaddr_in *from, int usecs);
@@ -33,10 +35,31 @@ private:
     int sock;
     bool broadcast;
     uint16_t broadcast_port;
+    
 public:
     UdpSender(bool broadcast, uint16_t broadcast_port);
     void Send(struct sockaddr_in *to);
     void Close();
+};
+
+class TcpServer {
+private:
+    uint16_t port;
+    int listening_sock;
+    std::vector<int> clients;
+    void (*HandleNewClient)(int id);
+    void (*HandleNewMessage)(int id, char *message, size_t length);
+    void (*HandleOldClient)(int id);
+public:
+    TcpServer(
+        uint16_t port, 
+        void (*newClient)(int id), 
+        void (*newMessage)(int id, char *message, size_t length),
+        void (*oldClient)(int id)
+    );
+    void HandleNewEvents(int usecs);
+    void SendToAll(char *message, size_t length);
+    void SendToOne(int id, char *message, size_t length);
 };
 
 #endif /* BROADCAST_H */

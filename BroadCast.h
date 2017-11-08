@@ -17,23 +17,26 @@
 #include <cstdint>
 #include <sys/socket.h>
 
-const int response_port = 5689;
-const int broadcast_port = 5688;
-
-class BroadcastSender {
-private:
-//    int response_socket;
-public:
-//    Broadcast();
-    void SendBroadcast();
-};
-
-class BroadcastCatcher {
+// TODO: Close
+class UdpCatcher {
 private:
     int sock;
+    uint16_t port;
 public:
-    BroadcastCatcher();
-    bool RecvBroadcast(struct sockaddr_in *from);
+    UdpCatcher(uint16_t port);
+    bool TryRecv(struct sockaddr_in *from, int usecs);
+    void Close();
+};
+
+class UdpSender {
+private:
+    int sock;
+    bool broadcast;
+    uint16_t broadcast_port;
+public:
+    UdpSender(bool broadcast, uint16_t broadcast_port);
+    void Send(struct sockaddr_in *to);
+    void Close();
 };
 
 #endif /* BROADCAST_H */

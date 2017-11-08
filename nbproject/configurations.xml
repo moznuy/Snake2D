@@ -41,6 +41,7 @@
           <standard>8</standard>
         </ccTool>
         <linkerTool>
+          <commandlineTool>g++</commandlineTool>
           <linkerLibItems>
             <linkerOptionItem>-lSDL2</linkerOptionItem>
             <linkerOptionItem>-lSDL2main</linkerOptionItem>

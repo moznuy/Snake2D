@@ -16,6 +16,7 @@
 #include <SDL2/SDL.h>
 
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "BroadCast.h"
 
@@ -264,19 +265,98 @@ public:
     }
 };
 
-int main(int argc, char* argv[])
-{
-    BroadcastCatcher c;
-    BroadcastSender s;
-    sockaddr_in lol;
-    int i=0;
-    while (true) {
-        if (c.RecvBroadcast(&lol))
+const int broad = 8745;
+const int resp = 8744;
+
+bool FindServer(struct sockaddr_in *serv_addr) {
+    UdpSender broadcast(true, broad);
+    UdpCatcher responds(resp);
+    
+    bool ServerIsFound = false;
+    sockaddr_in tmp;
+    
+    broadcast.Send(NULL);
+    for (int i=0; i<100; i++) {
+        if (responds.TryRecv(&tmp, 1000)) {
+            ServerIsFound = true;
             break;
-        if (i++ == 5)
-            s.SendBroadcast();
+        }
     }
     
+    broadcast.Close();
+    responds.Close();
+    
+    if (ServerIsFound) {
+        memcpy(serv_addr, &tmp, sizeof(struct sockaddr_in));
+        return true;
+    }
+    return false;
+}
+
+void InitServer(UdpCatcher **broadcast, UdpSender **response) {
+    *broadcast = new UdpCatcher(broad);
+    *response = new UdpSender(false, resp);
+}
+
+bool TryAnswerToClients(UdpCatcher *broadcast, UdpSender *response, struct sockaddr_in *from) {
+    sockaddr_in _from;
+    
+    if (broadcast->TryRecv(&_from, 1000)) {
+        response->Send(&_from);
+        memcpy(from, &_from, sizeof(struct sockaddr_in));
+        return true;
+    }
+    
+    return false;
+}
+
+static bool Exit = false;
+void my_handler(int s){
+//    printf("Caught signal %d\n",s);
+//    exit(1); 
+    Exit = true;
+}
+
+void SetupExitHandler() {
+    struct sigaction sigIntHandler;
+
+    sigIntHandler.sa_handler = my_handler;
+    sigemptyset(&sigIntHandler.sa_mask);
+    sigIntHandler.sa_flags = 0;
+
+    sigaction(SIGINT, &sigIntHandler, NULL);
+}
+
+
+void Main(bool server) {
+    sockaddr_in server_addr;
+    
+    bool serverFound = FindServer(&server_addr);
+    if (serverFound)
+        printf("Server found at: %s:%hu\n", inet_ntoa(server_addr.sin_addr), ntohs(server_addr.sin_port));
+    else {
+        printf("Server not Found. I'm the server now. Acquiring clients:\n");
+        
+        UdpCatcher *broadcast;
+        UdpSender *response;
+        InitServer(&broadcast, &response);
+        
+        sockaddr_in client_addr;
+        while (not Exit) {
+            if (TryAnswerToClients(broadcast, response, &client_addr))
+                printf("Got client at %s:%hu\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        }
+        broadcast->Close();
+        response->Close();
+    }
+}
+
+
+int main(int argc, char* argv[])
+{
+    bool server = argc == 1 ? true : false;
+    
+    Main(server);
     return 0;
     
     srand(time(NULL));

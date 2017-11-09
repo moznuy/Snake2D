@@ -7,7 +7,6 @@
 #include "BroadCast.h"
 
 #include <stdexcept>
-#include <netinet/in.h>
 #include <cstring>
 
 // blocking
@@ -17,6 +16,8 @@
 #include <sys/socket.h>
 
 #include <algorithm>
+#include <bits/errno.h>
+#include <csignal>
 
 using namespace std;
 
@@ -35,8 +36,10 @@ UdpCatcher::UdpCatcher(uint16_t port) {
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
     server.sin_port = htons(this->port);
-    if (bind(sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) 
-        throw runtime_error("Socket binding");
+    if (bind(sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) {
+        perror("UDP bind error");
+        throw runtime_error("UDP bind error");
+    }
 }
 
 bool UdpCatcher::TryRecv(struct sockaddr_in *from, int usecs) {
@@ -47,8 +50,10 @@ bool UdpCatcher::TryRecv(struct sockaddr_in *from, int usecs) {
     FD_SET(sock, &readfds);
     
     int ret = select(sock + 1, &readfds, NULL, NULL, &tim);
-    if (ret == -1)
-        throw runtime_error("Select error");
+    if (ret == -1) {
+        perror("UDP Select error");
+        throw runtime_error("UDP Select error");
+    }
     if (!FD_ISSET(sock, &readfds))
         return false;
     
@@ -100,8 +105,8 @@ void UdpSender::Close() {
     close(sock);
 }
 
-TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage)(int id, char *message, size_t length), void (*oldClient)(int id)) {
-    this->port = port;
+TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage)(int id, const char *message, size_t length), void (*oldClient)(int id)) {
+    this->nextIndex = 0;
     this->HandleNewClient = newClient;
     this->HandleNewMessage = newMessage;
     this->HandleOldClient = oldClient;
@@ -112,14 +117,23 @@ TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage
 
     if (fcntl(listening_sock, F_SETFL, O_NONBLOCK) < 0)
         throw runtime_error("Socket blocking");
-
+    
+    int yes = 1;
+    if (setsockopt(listening_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
+        perror("Reuse addr");
+        throw runtime_error("Reuse addr error");
+    } 
+    
+    
     struct sockaddr_in server;
     memset(&server, 0, sizeof(sockaddr_in));
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = htons(this->port);
-    if (bind(listening_sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) 
-        throw runtime_error("Socket binding");
+    server.sin_port = htons(port);
+    if (bind(listening_sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) {
+        perror("TcpServer bind error");
+        throw runtime_error("TcpServer bind error");
+    }
     
     if (listen(listening_sock, 5) < 0)
         throw runtime_error("Socket listening");
@@ -133,62 +147,172 @@ void TcpServer::HandleNewEvents(int usecs) {
     
     FD_SET(this->listening_sock, &readfds);
     for (auto &it: clients) {
-        FD_SET(it, &readfds);
+        FD_SET(it.second, &readfds);
     }
     
     int nfds = this->listening_sock;
     for (auto &it:clients) {
-        nfds = max(nfds, it);
+        nfds = max(nfds, it.second);
     }
     
     int ret = select(++nfds, &readfds, NULL, NULL, &tim);
-    if (ret == -1)
-        throw runtime_error("Select error");
+    if (ret == -1) {
+        perror("TcpServer Select error");
+        throw runtime_error("TcpServer Select error");
+    }
     
     if (FD_ISSET(this->listening_sock, &readfds)) {
         struct sockaddr_in client_addr;
         socklen_t len = sizeof(struct sockaddr_in);
         int client = accept(this->listening_sock, (struct sockaddr *) &client_addr, &len);
-        clients.push_back(client);
+        clients.insert(make_pair(this->nextIndex, client));
         
-        HandleNewClient(clients.size() - 1);
+        HandleNewClient(this->nextIndex++);
     }
     
-    for (int i=0; i < clients.size(); i++) {
-        if (FD_ISSET(clients[i], &readfds)) {
+    for (auto it = clients.begin(); it != clients.end(); ) {
+        if (FD_ISSET(it->second, &readfds)) {
             const int bufflen = 8192;
             char buff[bufflen];
             
-            int ret = recv(clients[i], buff, bufflen, 0);
+            int ret = recv(it->second, buff, bufflen, 0);
             if (ret < 0) {
-                printf("error with socket %d", clients[i]);
+                printf("error with socket %d", it->second);
             } else if (ret == 0) {
-                printf("client socket %d closed", clients[i]);
-                shutdown(clients[i], SHUT_RDWR);
+                printf("client socket %d closed", it->second);
+                shutdown(it->second, SHUT_RDWR);
             } else {
-                HandleNewMessage(i, buff, ret);
+                HandleNewMessage(it->first, buff, ret);
             }
             if (ret <= 0) {
-                close(clients[i]);
+                close(it->second);
+                HandleOldClient(it->first);
+                it = clients.erase(it);
+            } else {
+                ++it;
             }
-            // REMOVE FROM VECTOR
+        } else {
+            ++it;
         }
     }
-    
-//    if (!FD_ISSET(sock, &readfds))
-//        return false;
-//    
-//    char buff[256];
-//    socklen_t len = sizeof(struct sockaddr_in);
-//    if (recvfrom(sock, buff, 256, 0, (struct sockaddr *)from, &len) < 0)
-//        throw runtime_error("Recvfrom error");
-//    return true;
 }
 
-void TcpServer::SendToAll(char *message, size_t length) {
-    
+void TcpServer::SendToAll(const char *message, size_t length) {
+    for (auto &it: clients) {
+        send(it.second, message, length, 0);
+    }
 }
 
-void TcpServer::SendToOne(int id, char *message, size_t length) {
+void TcpServer::SendToOne(int id, const char *message, size_t length) {
+    // TODO: IF
+    send(clients.at(id), message, length, 0);
+}
+
+void TcpServer::Close() {
+    for (auto &it: clients) {
+//        shutdown(it.second, FD_)
+        close(it.second);
+    }
     
+    close(this->listening_sock);
+}
+
+TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const char*, size_t)) {
+//    memcpy(&this->server_address, server_address, sizeof(struct sockaddr_in));
+    this->connected = false;
+    this->connection_closed = false;
+    this->HandleNewMessage = newMessage;
+    
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) 
+        throw runtime_error("Socket creation");
+
+    if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0)
+        throw runtime_error("Socket blocking");
+    
+    int ret = connect(sock, (struct sockaddr *)server_address, sizeof(struct sockaddr_in));
+    if (ret < 0 && errno != EINPROGRESS) {
+        perror("Client Connect!!! error");
+        throw runtime_error("Client Connect!!! error");
+    }
+    
+    if (ret == 0) {
+        connected = true;
+    } else {
+        // connection attempt is in progress
+    }
+}
+
+void TcpClient::HandleNewEvents(int usecs) {
+    struct timeval tim = {0, usecs};
+    
+    fd_set readfds, writefds;
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    
+    if (this->connected)
+        FD_SET(sock, &readfds);
+    if (!this->connected)
+        FD_SET(sock, &writefds);
+    
+    int ret = select(sock + 1, &readfds, &writefds, NULL, &tim);
+    if (ret == -1) {
+        perror("Client Select error: ");
+        throw runtime_error("Client Select error: ");
+    }
+    
+    if (FD_ISSET(sock, &writefds)) {
+        int val;
+        socklen_t length = sizeof(int);
+        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &val, &length) < 0)
+            throw runtime_error("getsockopt error");
+        
+        if (val != 0) {
+//            perror("Connection errno");
+            if (errno != EINPROGRESS)
+                throw runtime_error("connection error");
+            else 
+                return;
+//                throw runtime_error("must never happen. maybe?");
+        }
+        
+        connected = true;
+        return;
+    }
+    
+    if (FD_ISSET(sock, &readfds)) {
+        const int bufflen = 8192;
+        char buff[bufflen];
+
+        int ret = recv(sock, buff, bufflen, 0);
+        if (ret < 0) {
+            printf("error with socket %d", sock);
+        } else if (ret == 0) {
+            printf("client socket %d closed", sock);
+//            perror("closed?");
+            shutdown(sock, SHUT_RDWR);
+        } else {
+            HandleNewMessage(buff, ret);
+        }
+        if (ret <= 0) {
+            this->connection_closed = true;
+            close(sock);
+        }
+    }
+}
+
+
+void TcpClient::Send(const char *message, size_t length) {
+    // TODO: IF
+    send(sock, message, length, 0);
+}
+
+
+bool TcpClient::Closed() {
+    return connection_closed;
+}
+
+
+void TcpClient::Close() {
+    close(sock);
 }

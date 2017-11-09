@@ -45,6 +45,7 @@
           <linkerLibItems>
             <linkerOptionItem>-lSDL2</linkerOptionItem>
             <linkerOptionItem>-lSDL2main</linkerOptionItem>
+            <linkerOptionItem>-lpthread</linkerOptionItem>
           </linkerLibItems>
         </linkerTool>
       </compileType>

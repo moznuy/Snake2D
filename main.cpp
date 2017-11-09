@@ -17,6 +17,7 @@
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
 #include "BroadCast.h"
 
@@ -64,7 +65,7 @@ public:
         pos = 0;
     }
     
-    void Set(char *data, size_t length) {
+    void Set(const char *data, size_t length) {
         Dispose();
         stream = new char[length];
         memcpy(stream, data, length);
@@ -209,19 +210,22 @@ public:
 };
 
 class Game {
-    vector<Snake> snakes;
+    map<int, Snake> snakes;
     Berry b;
 public:
     Game():b(Berry({10, 30})) {
     }
-    void AddSnake() {
-        snakes.push_back(Snake());
+    void AddSnake(int id) {
+        snakes.insert(make_pair(id, Snake()));
+    }
+    void RemoveSnake(int id) {
+        snakes.erase(id);
     }
     void Progress() {
         for (auto &it: snakes) {
-            it.Progress();
-            if (it.getPositions()[0] == b.getPosition()) {
-                it.Grow();
+            it.second.Progress();
+            if (it.second.getPositions()[0] == b.getPosition()) {
+                it.second.Grow();
                 b = Berry({rand() % 100, rand() % 100});
             }
         }
@@ -238,7 +242,7 @@ public:
     void Draw(SDL_Renderer* renderer) {
         b.Draw(renderer);
         for (auto &it: snakes) {
-            it.Draw(renderer);
+            it.second.Draw(renderer);
         }
     }
     
@@ -246,7 +250,8 @@ public:
         stream.Clear();
         stream.Push(snakes.size());
         for (auto &it: snakes) {
-            it.Serialize(stream);
+            stream.Push(it.first);
+            it.second.Serialize(stream);
         }
         
         b.Serialize(stream);
@@ -256,9 +261,11 @@ public:
         stream.Reset_Read();
         size_t n;
         stream.Pull(n);
-        snakes.resize(n);
-        for (auto &it: snakes) {
-            it.Deserialize(stream);
+        for (int i=0; i<n; i++) {
+            int index;
+            stream.Pull(index);
+            snakes[index] = Snake();
+            snakes[index].Deserialize(stream);
         }
         
         b.Deserialize(stream);
@@ -267,6 +274,7 @@ public:
 
 const int broad = 8745;
 const int resp = 8744;
+const int serverPort = 9874;
 
 bool FindServer(struct sockaddr_in *serv_addr) {
     UdpSender broadcast(true, broad);
@@ -288,9 +296,17 @@ bool FindServer(struct sockaddr_in *serv_addr) {
     
     if (ServerIsFound) {
         memcpy(serv_addr, &tmp, sizeof(struct sockaddr_in));
+        serv_addr->sin_port = htons(serverPort);
         return true;
     }
-    return false;
+    else {
+        memset(serv_addr, 0, sizeof(sockaddr_in));
+        serv_addr->sin_family = AF_INET;
+        if (inet_pton(AF_INET, "127.0.0.1", &serv_addr->sin_addr) != 1)
+            throw runtime_error("inet_pton error");
+        serv_addr->sin_port = htons(serverPort);
+        return false;
+    }
 }
 
 void InitServer(UdpCatcher **broadcast, UdpSender **response) {
@@ -298,10 +314,10 @@ void InitServer(UdpCatcher **broadcast, UdpSender **response) {
     *response = new UdpSender(false, resp);
 }
 
-bool TryAnswerToClients(UdpCatcher *broadcast, UdpSender *response, struct sockaddr_in *from) {
+bool TryAnswerToClients(UdpCatcher *broadcast, UdpSender *response, struct sockaddr_in *from, int usecs) {
     sockaddr_in _from;
     
-    if (broadcast->TryRecv(&_from, 1000)) {
+    if (broadcast->TryRecv(&_from, usecs)) {
         response->Send(&_from);
         memcpy(from, &_from, sizeof(struct sockaddr_in));
         return true;
@@ -328,40 +344,121 @@ void SetupExitHandler() {
 }
 
 
-void Main(bool server) {
-    sockaddr_in server_addr;
-    
-    bool serverFound = FindServer(&server_addr);
-    if (serverFound)
-        printf("Server found at: %s:%hu\n", inet_ntoa(server_addr.sin_addr), ntohs(server_addr.sin_port));
-    else {
-        printf("Server not Found. I'm the server now. Acquiring clients:\n");
-        
-        UdpCatcher *broadcast;
-        UdpSender *response;
-        InitServer(&broadcast, &response);
-        
-        sockaddr_in client_addr;
-        while (not Exit) {
-            if (TryAnswerToClients(broadcast, response, &client_addr))
-                printf("Got client at %s:%hu\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-        }
-        broadcast->Close();
-        response->Close();
-    }
+Game TheGame;
+Game aGame;
+
+void HandleNewClient(int id) {
+    TheGame.AddSnake(id);
+    printf("new client with id %d\n", id);
 }
 
 
-int main(int argc, char* argv[])
-{
-    bool server = argc == 1 ? true : false;
+map<char, direction> tturn = {
+    {'w', North},
+    {'d', East},
+    {'s', South},
+    {'a', West},
+};
+void HandleNewMessage(int id, const char *message, size_t length) {
+    if (length == 1 && tturn.count(message[0]) == 1)
+        TheGame.Turn(id, tturn[message[0]]);
+    return;
+}
+
+void HandleOldClient(int id) {
+    TheGame.RemoveSnake(id);
+    printf("Client with id %d disconnected\n", id);
+}
+
+void* ServerThread(void *data) {
+    //UDP
+    UdpCatcher *broadcast;
+    UdpSender *response;
+    InitServer(&broadcast, &response);
+    sockaddr_in client_addr;
     
-    Main(server);
-    return 0;
+    //TCP
+    TcpServer server(serverPort, HandleNewClient, HandleNewMessage, HandleOldClient);
     
-    srand(time(NULL));
+    int progress = 0;
+    Stream stream;
+//    TheGame.AddSnake(-1);
+//    TheGame.Turn(-1, East);
+    while (not Exit) {
+        if (TryAnswerToClients(broadcast, response, &client_addr, 1000))
+            printf("Got client at %s:%hu\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        
+        server.HandleNewEvents(1000);
+        
+        if (++progress % 10 == 0) {
+            TheGame.Progress();
+            TheGame.Serialize(stream);
+            auto data = stream.Data();
+            if (data.second == 0)
+                throw runtime_error("why?");
+            server.SendToAll(data.first, data.second);
+        }
+    }
+    broadcast->Close();
+    response->Close();
+    server.Close();
+    
+    pthread_exit(NULL);
+}
+
+pthread_mutex_t clientMutex;
+char key;
+
+void HandleNewMessageClient(const char *message, size_t length) {
+    Stream stream;
+    stream.Set(message, length);
+    pthread_mutex_lock(&clientMutex);
+    aGame.Deserialize(stream);
+    pthread_mutex_unlock(&clientMutex);
+    return;
+}
+
+void* ClientThread(void *data) {
+    struct sockaddr_in server_addr;
+    memcpy(&server_addr, data, sizeof(sockaddr_in));
+    
+    TcpClient client(&server_addr, HandleNewMessageClient);
+    while (not Exit) {
+        client.HandleNewEvents(1000);
+        if (client.Closed())
+            break;
+        
+        pthread_mutex_lock(&clientMutex);
+        // if connected !!!!!!! TODOO DODODODOo
+        if (key) {
+            client.Send(&key, 1);
+            key = 0;
+        } 
+        pthread_mutex_unlock(&clientMutex);
+    }
+    client.Close();
+    pthread_exit(NULL);
+}
+
+int main(int argc, char *argv[]) {
+    sockaddr_in server_addr;
+    pthread_t serverThread, clientThread;
+    
+    bool serverFound = FindServer(&server_addr);
+    if (serverFound) {
+        printf("Server found at: %s\n", inet_ntoa(server_addr.sin_addr));
+    }
+    else {
+        printf("Server not Found. I'm the server now. Acquiring clients:\n");
+        pthread_create(&serverThread, NULL, ServerThread, NULL);
+    }
+    usleep(100);
+    pthread_mutex_init(&clientMutex, NULL);
+    key = 0;
+    pthread_create(&clientThread, NULL, ClientThread, &server_addr);
+    
     if (SDL_Init(SDL_INIT_VIDEO) == 0) {
-//        SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" );
+        SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" );
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
         SDL_Window* window = NULL;
@@ -371,28 +468,17 @@ int main(int argc, char* argv[])
         old = SDL_GetTicks();
         if (SDL_CreateWindowAndRenderer(800, 800, 0, &window, &renderer) == 0) {
             SDL_bool done = SDL_FALSE;
-            
-            Game g;
-            g.AddSnake();
 
             while (!done) {
                 SDL_Event event;
 
                 SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
                 SDL_RenderClear(renderer);
-
-//                SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-//                SDL_RenderDrawLines(renderer, points, POINTS_COUNT);
-//                for (int i=0; i<500; i++) {
-//                    for (int j=0; j<300; j++) {
-////                        SDL_SetRenderDrawColor(renderer, (i + j*2)%255 , (2*i - j)%255, (3*i + 5*j/3)%255 , SDL_ALPHA_OPAQUE);
-//                        SDL_RenderDrawPoint(renderer, i, j);
-//                    }
-//                }
                 
-                g.Progress();
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-                g.Draw(renderer);
+                pthread_mutex_lock(&clientMutex);
+                aGame.Draw(renderer);
+                pthread_mutex_unlock(&clientMutex);
                 
                 SDL_RenderPresent(renderer);
                 
@@ -401,43 +487,25 @@ int main(int argc, char* argv[])
                         done = SDL_TRUE;
                     }
                     if (event.type == SDL_KEYDOWN) {
+                        pthread_mutex_lock(&clientMutex);
                         if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)
                             done = SDL_TRUE;
+                        // EXIT =TRUE
+                        
                         if (event.key.keysym.scancode == SDL_SCANCODE_W)
-                            g.Turn(0, North);
-                        if (event.key.keysym.scancode == SDL_SCANCODE_D)
-                            g.Turn(0, East);
-                        if (event.key.keysym.scancode == SDL_SCANCODE_S)
-                            g.Turn(0, South);
-                        if (event.key.keysym.scancode == SDL_SCANCODE_A)
-                            g.Turn(0, West);
-                        if (event.key.keysym.scancode == SDL_SCANCODE_P)
-                            g.Grow_tmp(0);
-                        if (event.key.keysym.scancode == SDL_SCANCODE_M) {
-                            Stream stream;
-                            g.Serialize(stream);
-                            ofstream file;
-                            file.open("1.bin", ofstream::binary);
-                            auto ret = stream.Data();
-                            const char *data = ret.first;
-                            size_t length = ret.second;
-                            file.write(data, length);
-                            file.close();
-                        }
-                        if (event.key.keysym.scancode == SDL_SCANCODE_L) {
+                            key = 'w';
+                        else if (event.key.keysym.scancode == SDL_SCANCODE_D)
+                            key = 'd';
+                        else if (event.key.keysym.scancode == SDL_SCANCODE_S)
+                            key = 's';
+                        else if (event.key.keysym.scancode == SDL_SCANCODE_A)
+                            key = 'a';
+                        else 
+                            key = 0;
                             
-                            ifstream file;
-                            file.open("1.bin", ifstream::binary);
-                            file.seekg(0, ifstream::end);
-                            size_t length = file.tellg();
-                            file.seekg(0, ifstream::beg);
-                            vector<char> data(length);
-                            
-                            file.read(data.data(), length);
-                            Stream stream;
-                            stream.Set(data.data(), length);
-                            g.Deserialize(stream);
-                        }
+//                        if (event.key.keysym.scancode == SDL_SCANCODE_P)
+//                            g.Grow_tmp(0);
+                        pthread_mutex_unlock(&clientMutex);
                     }
                 }
                 
@@ -458,3 +526,4 @@ int main(int argc, char* argv[])
     SDL_Quit();
     return 0;
 }
+

@@ -16,7 +16,8 @@
 
 #include <cstdint>
 #include <sys/socket.h>
-#include <vector>
+#include <netinet/in.h>
+#include <map>
 
 // TODO: Close
 class UdpCatcher {
@@ -44,22 +45,44 @@ public:
 
 class TcpServer {
 private:
-    uint16_t port;
     int listening_sock;
-    std::vector<int> clients;
+    std::map<int, int> clients;
+    int nextIndex;
+    
     void (*HandleNewClient)(int id);
-    void (*HandleNewMessage)(int id, char *message, size_t length);
+    void (*HandleNewMessage)(int id, const char *message, size_t length);
     void (*HandleOldClient)(int id);
 public:
     TcpServer(
         uint16_t port, 
         void (*newClient)(int id), 
-        void (*newMessage)(int id, char *message, size_t length),
+        void (*newMessage)(int id, const char *message, size_t length),
         void (*oldClient)(int id)
     );
     void HandleNewEvents(int usecs);
-    void SendToAll(char *message, size_t length);
-    void SendToOne(int id, char *message, size_t length);
+    void SendToAll(const char *message, size_t length);
+    void SendToOne(int id, const char *message, size_t length);
+    void Close();
+};
+
+class TcpClient {
+private:
+//    struct sockaddr_in server_address;
+    int sock;
+    bool connected;
+    bool connection_closed;
+    
+    void (*HandleNewMessage)(const char *message, size_t length);
+public:
+    TcpClient(
+        struct sockaddr_in *server_address,
+        void (*newMessage)(const char *message, size_t length)
+    );
+//    void TryConnect();
+    void HandleNewEvents(int usecs);
+    void Send(const char *message, size_t length);
+    bool Closed();
+    void Close();
 };
 
 #endif /* BROADCAST_H */

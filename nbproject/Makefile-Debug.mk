@@ -53,7 +53,7 @@ FFLAGS=
 ASFLAGS=
 
 # Link Libraries and Options
-LDLIBSOPTIONS=-lSDL2 -lSDL2main
+LDLIBSOPTIONS=-lSDL2 -lSDL2main -lpthread
 
 # Build Targets
 .build-conf: ${BUILD_SUBPROJECTS}

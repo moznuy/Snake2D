@@ -177,9 +177,9 @@ void TcpServer::HandleNewEvents(int usecs) {
             
             int ret = recv(it->second, buff, bufflen, 0);
             if (ret < 0) {
-                printf("error with socket %d", it->second);
+                fprintf(stderr, "Client %d socket error: %s\n", it->first, strerror(errno));
             } else if (ret == 0) {
-                printf("client socket %d closed", it->second);
+                //printf("client socket %d closed\n", it->second);
                 shutdown(it->second, SHUT_RDWR);
             } else {
                 HandleNewMessage(it->first, buff, ret);
@@ -286,9 +286,9 @@ void TcpClient::HandleNewEvents(int usecs) {
 
         int ret = recv(sock, buff, bufflen, 0);
         if (ret < 0) {
-            printf("error with socket %d", sock);
+            fprintf(stderr, "Socket error: %s\n", strerror(errno));
         } else if (ret == 0) {
-            printf("client socket %d closed", sock);
+//            printf("client socket %d closed", sock);
 //            perror("closed?");
             shutdown(sock, SHUT_RDWR);
         } else {

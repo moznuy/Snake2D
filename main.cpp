@@ -11,6 +11,8 @@
  * Created on November 7, 2017, 2:44 PM
  */
 
+// scp ./dist/Debug/GNU-Linux/snake2d sberko@10.70.80.96:/home/sberko/Tmp/snake2d
+
 #include <cstdlib>
 #include <bits/stdc++.h>
 #include <SDL2/SDL.h>
@@ -47,6 +49,49 @@ bool operator==(const SDL_Point &a, const SDL_Point &b) {
     return a.x == b.x && a.y == b.y;
 }
 
+//typedef uint8_t crc;
+//#define WIDTH  (8 * sizeof(crc))
+//#define TOPBIT (1 << (WIDTH - 1))
+//#define POLYNOMIAL 0xD7
+//
+//crc  crcTable[256];
+//
+//void crcInit(void) {
+//    crc  remainder;
+//    for (int dividend = 0; dividend < 256; ++dividend) {
+//        remainder = dividend << (WIDTH - 8);
+//
+//        for (uint8_t bit = 8; bit > 0; --bit) {		
+//            if (remainder & TOPBIT)
+//                remainder = (remainder << 1) ^ POLYNOMIAL;
+//            else
+//                remainder = (remainder << 1);
+//        }
+//        crcTable[dividend] = remainder;
+//    }
+//} 
+//
+//crc crcFast(const uint8_t *message, int nBytes)
+//{
+//    uint8_t data;
+//    crc remainder = 0;
+//
+//    for (int byte = 0; byte < nBytes; ++byte)
+//    {
+//        data = message[byte] ^ (remainder >> (WIDTH - 8));
+//        remainder = crcTable[data] ^ (remainder << 8);
+//    }
+//    return (remainder);
+//}
+
+typedef unsigned long long checksum;
+checksum getSum(const char *message, size_t length) {
+    checksum res = 0;
+    for (size_t i = 0; i < length; i++) {
+        res += message[i];
+    }
+    return res;
+}
 
 class Stream {
     char *stream;
@@ -80,6 +125,10 @@ public:
         capacity = 0;
         Clear();
     }
+    virtual ~Stream() {
+        Dispose();
+    }
+
     
     void Reserve(size_t capacit) {
         if (capacit > this->capacity) {
@@ -102,14 +151,32 @@ public:
         size += sizeof(T);
     }
     
+    void AddCrc() {
+        checksum check = getSum(stream, size);  //(crc *)stream, size);
+        Push(check);
+    }
+    
+    bool ChechCrc() {
+        if (size < sizeof(checksum))
+            throw runtime_error("nope");
+        size -= sizeof(checksum);
+        checksum check = getSum(stream, size);  //crcFast((crc *)stream, size);
+        return check == *(checksum *)(stream + size);
+    }
+    
     void Reset_Read() {
         pos = 0;
     }
     
     template<typename T>
     void Pull(T &info) {
-        if (sizeof(T) + pos > size)
+        if (sizeof(T) + pos > size) {
+//            ofstream file;
+//            file.open("1.bin", ofstream::binary);
+//            file.write(stream, capacity);
+//            file.close();
             throw runtime_error("out of bound exception");
+        }
         memcpy(&info, stream + pos, sizeof(T));
         pos += sizeof(T);
     }
@@ -123,15 +190,20 @@ public:
 class Snake {
     vector<SDL_Point> positions;
     direction dir;
+    direction new_dir;
     
 public:
     Snake() {
-        dir = None;
+        new_dir = dir = None;
         positions.push_back({20, 20});
     }
     void Progress() {
         for (int i=positions.size() - 1; i>0; i--)
             positions[i] = positions[i - 1];
+        
+        if (dir == None || abs(new_dir - dir) != 2 ) {
+            dir = new_dir;
+        }
         
         positions[0] = positions[0] + delta[dir];
         if (positions[0].x > 100 - 1)
@@ -146,10 +218,7 @@ public:
 //        mvprintw(0, 0, "%d %d", positions[0].y, positions[0].x);
     }
     void Turn(direction newDir) {
-        if (newDir == None || abs(newDir - dir) == 2 && dir != None)
-            return;
-        
-        dir = newDir;   
+        new_dir = newDir;   
     }
     void Draw(SDL_Renderer* renderer) {
         for (auto &it: positions) {
@@ -173,15 +242,18 @@ public:
             stream.Push(it);
         }
         stream.Push(dir);
+        stream.Push(new_dir);
     }
     void Deserialize(Stream &stream) {
         size_t n;
         stream.Pull(n);
+        positions.clear();
         positions.resize(n);
         for (auto &it: positions) {
             stream.Pull(it);
         }
         stream.Pull(dir);
+        stream.Pull(new_dir);
     }
 };
 
@@ -231,12 +303,16 @@ public:
         }
     }
     void Turn(int index, direction dir) {
-        if (index >= 0 && index < snakes.size())
-            snakes[index].Turn(dir);
+        if (snakes.count(index) == 0) {
+            fprintf(stderr, "CRITICAL WARNING!! SNAKE ISN'T IN THE MAP");
+        }
+        snakes.at(index).Turn(dir);
     }
     void Grow_tmp(int index) {
-        if (index >= 0 && index < snakes.size())
-            snakes[index].Grow();
+        if (snakes.count(index) == 0) {
+            fprintf(stderr, "CRITICAL WARNING!! SNAKE ISN'T IN THE MAP");
+        }
+        snakes.at(index).Grow();
     }
     
     void Draw(SDL_Renderer* renderer) {
@@ -253,7 +329,6 @@ public:
             stream.Push(it.first);
             it.second.Serialize(stream);
         }
-        
         b.Serialize(stream);
     }
     
@@ -261,13 +336,13 @@ public:
         stream.Reset_Read();
         size_t n;
         stream.Pull(n);
+        snakes.clear();
         for (int i=0; i<n; i++) {
             int index;
             stream.Pull(index);
             snakes[index] = Snake();
             snakes[index].Deserialize(stream);
         }
-        
         b.Deserialize(stream);
     }
 };
@@ -327,29 +402,13 @@ bool TryAnswerToClients(UdpCatcher *broadcast, UdpSender *response, struct socka
 }
 
 static bool Exit = false;
-void my_handler(int s){
-//    printf("Caught signal %d\n",s);
-//    exit(1); 
-    Exit = true;
-}
-
-void SetupExitHandler() {
-    struct sigaction sigIntHandler;
-
-    sigIntHandler.sa_handler = my_handler;
-    sigemptyset(&sigIntHandler.sa_mask);
-    sigIntHandler.sa_flags = 0;
-
-    sigaction(SIGINT, &sigIntHandler, NULL);
-}
-
 
 Game TheGame;
 Game aGame;
 
 void HandleNewClient(int id) {
     TheGame.AddSnake(id);
-    printf("new client with id %d\n", id);
+    printf("Client with id %d connected\n", id);
 }
 
 
@@ -360,8 +419,13 @@ map<char, direction> tturn = {
     {'a', West},
 };
 void HandleNewMessage(int id, const char *message, size_t length) {
-    if (length == 1 && tturn.count(message[0]) == 1)
-        TheGame.Turn(id, tturn[message[0]]);
+    if (length == 1) {
+        if (tturn.count(message[0]) == 1) {
+            TheGame.Turn(id, tturn[message[0]]);
+        } else if (message[0] == 'l') {
+            TheGame.Grow_tmp(id);
+        }
+    }
     return;
 }
 
@@ -369,6 +433,8 @@ void HandleOldClient(int id) {
     TheGame.RemoveSnake(id);
     printf("Client with id %d disconnected\n", id);
 }
+
+pthread_mutex_t clientMutex;
 
 void* ServerThread(void *data) {
     //UDP
@@ -384,15 +450,23 @@ void* ServerThread(void *data) {
     Stream stream;
 //    TheGame.AddSnake(-1);
 //    TheGame.Turn(-1, East);
-    while (not Exit) {
+    while (true) {
+        pthread_mutex_lock(&clientMutex);
+        if (Exit) {
+            pthread_mutex_unlock(&clientMutex);
+            break;
+        }
+        pthread_mutex_unlock(&clientMutex);
+        
         if (TryAnswerToClients(broadcast, response, &client_addr, 1000))
             printf("Got client at %s:%hu\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         
         server.HandleNewEvents(1000);
         
-        if (++progress % 10 == 0) {
+        if (++progress % 20 == 0) {
             TheGame.Progress();
             TheGame.Serialize(stream);
+            stream.AddCrc();
             auto data = stream.Data();
             if (data.second == 0)
                 throw runtime_error("why?");
@@ -406,27 +480,48 @@ void* ServerThread(void *data) {
     pthread_exit(NULL);
 }
 
-pthread_mutex_t clientMutex;
 char key;
+
+static int errr = 0;
 
 void HandleNewMessageClient(const char *message, size_t length) {
     Stream stream;
     stream.Set(message, length);
-    pthread_mutex_lock(&clientMutex);
-    aGame.Deserialize(stream);
-    pthread_mutex_unlock(&clientMutex);
+    if (stream.ChechCrc()) {
+        pthread_mutex_lock(&clientMutex);
+        aGame.Deserialize(stream);
+        pthread_mutex_unlock(&clientMutex);
+        fprintf(stdout, "--- %llu\n", length);
+    } else {
+        errr++;
+//        if (errr % 10 == 0)
+            fprintf(stderr, "%d %llu\n", errr, length);
+    }
     return;
 }
+
+// TODO: IMPLEMENT normal stream!!!
 
 void* ClientThread(void *data) {
     struct sockaddr_in server_addr;
     memcpy(&server_addr, data, sizeof(sockaddr_in));
     
     TcpClient client(&server_addr, HandleNewMessageClient);
-    while (not Exit) {
-        client.HandleNewEvents(1000);
-        if (client.Closed())
+    while (true) {
+        pthread_mutex_lock(&clientMutex);
+        if (Exit) {
+            pthread_mutex_unlock(&clientMutex);
             break;
+        }
+        pthread_mutex_unlock(&clientMutex);
+        
+        client.HandleNewEvents(1000);
+        if (client.Closed()) {
+            pthread_mutex_lock(&clientMutex);
+            Exit = true;
+            pthread_mutex_unlock(&clientMutex);
+            break;
+        }
         
         pthread_mutex_lock(&clientMutex);
         // if connected !!!!!!! TODOO DODODODOo
@@ -441,8 +536,10 @@ void* ClientThread(void *data) {
 }
 
 int main(int argc, char *argv[]) {
+//    crcInit();
+    
     sockaddr_in server_addr;
-    pthread_t serverThread, clientThread;
+    pthread_t serverThread = -1, clientThread = -1;
     
     bool serverFound = FindServer(&server_addr);
     if (serverFound) {
@@ -500,6 +597,8 @@ int main(int argc, char *argv[]) {
                             key = 's';
                         else if (event.key.keysym.scancode == SDL_SCANCODE_A)
                             key = 'a';
+                        else if (event.key.keysym.scancode == SDL_SCANCODE_L)
+                            key = 'l';
                         else 
                             key = 0;
                             
@@ -524,6 +623,14 @@ int main(int argc, char *argv[]) {
         }
     }
     SDL_Quit();
+    
+    pthread_mutex_lock(&clientMutex);
+    Exit = true;
+    pthread_mutex_unlock(&clientMutex);
+    if (serverThread != -1)
+        pthread_join(serverThread, NULL);
+    if (clientThread != -1)
+        pthread_join(clientThread, NULL);
     return 0;
 }
 

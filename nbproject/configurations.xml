@@ -76,6 +76,13 @@
         <asmTool>
           <developmentMode>5</developmentMode>
         </asmTool>
+        <linkerTool>
+          <linkerLibItems>
+            <linkerOptionItem>-lSDL2</linkerOptionItem>
+            <linkerOptionItem>-lSDL2main</linkerOptionItem>
+            <linkerOptionItem>-pthread</linkerOptionItem>
+          </linkerLibItems>
+        </linkerTool>
       </compileType>
       <item path="BroadCast.cpp" ex="false" tool="1" flavor2="0">
       </item>

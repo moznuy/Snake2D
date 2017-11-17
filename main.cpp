@@ -93,88 +93,124 @@ checksum getSum(const char *message, size_t length) {
     return res;
 }
 
+typedef int sizeType;
+const int sizeOfSize = sizeof(sizeType);
+
 class Stream {
     char *stream;
-    size_t size;
     size_t capacity;
     size_t pos;
-public:
-    Stream() {
-        stream = nullptr;
-        capacity = 0;
-        Clear();
+    
+    bool own;
+    
+    void SetSize(sizeType size) {
+        if (!own)
+            throw runtime_error("Stream is not mine");
+        
+        *(sizeType *)stream = size;
     }
     
-    void Clear() {
-        size = 0;
-        pos = 0;
-    }
-    
-    void Set(const char *data, size_t length) {
-        Dispose();
-        stream = new char[length];
-        memcpy(stream, data, length);
-        size = capacity = length;
-    }
-    
-    void Dispose() {
+    void Dispose(bool completly) {
+        if (!own)
+            return;
+        
         if (stream != nullptr) {
             delete[] stream;
         }
-        stream = nullptr;
-        capacity = 0;
-        Clear();
+        if (completly) {
+            stream = nullptr;
+        } else {
+            stream = new char[sizeOfSize];
+            capacity = sizeOfSize;
+            Clear();
+        }
     }
-    virtual ~Stream() {
-        Dispose();
-    }
-
     
-    void Reserve(size_t capacit) {
-        if (capacit > this->capacity) {
-            char *nw = new char[capacit];
+    void Reserve(size_t newCapacity) {
+        if (!own)
+            throw runtime_error("Stream is not mine");
+        
+        if (newCapacity > this->capacity) {
+            char *nw = new char[newCapacity];
             if (stream != nullptr) {
-                memcpy(nw, stream, size);
+                memcpy(nw, stream, GetSize());
                 delete[] stream;
             }
             stream = nw;
-            this->capacity = capacit;
+            this->capacity = newCapacity;
         }
     }
+public:
+    Stream() {
+        stream = new char[sizeOfSize];
+        capacity = sizeOfSize;
+        
+        own = true;
+        Clear();
+    }
+    Stream(char *data, size_t length) {
+        stream = data;
+        capacity = length;
+        pos = sizeOfSize;
+        
+        own = false;
+    }
+    
+    sizeType GetSize() const {
+        return *(sizeType *)stream;
+    }
+    
+    void Clear() {
+        if (!own)
+            throw runtime_error("Stream is not mine");
+        
+        SetSize(sizeOfSize);
+        ResetRead();
+    }
+    
+    
+    
+    virtual ~Stream() {
+        Dispose(true);
+    }
+
+    
+
     
     template<typename T>
     void Push(const T &info) {
+        if (!own)
+            throw runtime_error("Stream is not mine");
+        
+        auto size = GetSize();
         if (size + sizeof(T) > capacity) {
-            Reserve(max(size * 2, size + sizeof(T)));
+            Reserve(max(sizeType(size * 2), sizeType(size + sizeof(T))));
         }
         memcpy(stream + size, &info, sizeof(T));
         size += sizeof(T);
+        SetSize(size);
     }
     
-    void AddCrc() {
-        checksum check = getSum(stream, size);  //(crc *)stream, size);
-        Push(check);
-    }
+//    void AddCrc() {
+//        checksum check = getSum(stream, size);  //(crc *)stream, size);
+//        Push(check);
+//    }
+//    
+//    bool ChechCrc() {
+//        if (size < sizeof(checksum))
+//            throw runtime_error("nope");
+//        size -= sizeof(checksum);
+//        checksum check = getSum(stream, size);  //crcFast((crc *)stream, size);
+//        return check == *(checksum *)(stream + size);
+//    }
     
-    bool ChechCrc() {
-        if (size < sizeof(checksum))
-            throw runtime_error("nope");
-        size -= sizeof(checksum);
-        checksum check = getSum(stream, size);  //crcFast((crc *)stream, size);
-        return check == *(checksum *)(stream + size);
-    }
-    
-    void Reset_Read() {
-        pos = 0;
+    void ResetRead() {
+        pos = sizeOfSize;
     }
     
     template<typename T>
     void Pull(T &info) {
-        if (sizeof(T) + pos > size) {
-//            ofstream file;
-//            file.open("1.bin", ofstream::binary);
-//            file.write(stream, capacity);
-//            file.close();
+        if (sizeof(T) + pos > GetSize()) {
             throw runtime_error("out of bound exception");
         }
         memcpy(&info, stream + pos, sizeof(T));
@@ -182,8 +218,72 @@ public:
     }
     
     pair<const char*, size_t> Data() const {
-        return make_pair(stream, size);
+        return make_pair(stream, GetSize());
     }
+};
+
+
+class Buffer {
+    char *buffer;
+    size_t size;
+    size_t capacity;
+    void Reserve(size_t newCapacity) {
+        if (newCapacity > this->capacity) {
+            char *nw = new char[newCapacity];
+            if (buffer != nullptr) {
+                memcpy(nw, buffer, size);
+                delete[] buffer;
+            }
+            buffer = nw;
+            this->capacity = newCapacity;
+        }
+    }
+public:
+    Buffer() {
+        buffer = nullptr;
+        size = 0;
+        capacity = 0;
+    }
+    
+    void Add(const char *data, size_t length) {
+        if (size + length > capacity) {
+            Reserve(max(size * 2, size + length));
+        }
+        memcpy(buffer + size, data, length);
+        size += length;
+    }
+    
+    Stream* GetStream() {
+        if (size <= sizeOfSize)
+            return nullptr;
+        
+        sizeType requiredSize = *(sizeType *)buffer;
+        if (size < requiredSize)
+            return nullptr;
+        
+        return new Stream(buffer, requiredSize);
+    }
+    
+    void FreeStream(Stream *stream) {
+        sizeType requiredSize = *(sizeType *)buffer;
+        size -= requiredSize;
+        memmove(buffer, buffer + requiredSize, size);
+        delete stream;
+    }
+    
+    void Dispose() {
+        if (buffer != nullptr) {
+            delete[] buffer;
+            buffer = nullptr;
+            size = 0;
+            capacity = 0;
+        }
+    }
+    
+    virtual ~Buffer() {
+        Dispose();
+    }
+
 };
 
 
@@ -333,7 +433,7 @@ public:
     }
     
     void Deserialize(Stream &stream) {
-        stream.Reset_Read();
+        stream.ResetRead();
         size_t n;
         stream.Pull(n);
         snakes.clear();
@@ -466,11 +566,11 @@ void* ServerThread(void *data) {
         if (++progress % 20 == 0) {
             TheGame.Progress();
             TheGame.Serialize(stream);
-            stream.AddCrc();
             auto data = stream.Data();
             if (data.second == 0)
                 throw runtime_error("why?");
             server.SendToAll(data.first, data.second);
+            stream.Clear();
         }
     }
     broadcast->Close();
@@ -482,21 +582,27 @@ void* ServerThread(void *data) {
 
 char key;
 
-static int errr = 0;
+//static int errr = 0;
+
+Buffer clientBuffer;
+//Dispose later
 
 void HandleNewMessageClient(const char *message, size_t length) {
-    Stream stream;
-    stream.Set(message, length);
-    if (stream.ChechCrc()) {
+    clientBuffer.Add(message, length);
+    
+    Stream *stream = clientBuffer.GetStream();
+    if (stream != nullptr) {
         pthread_mutex_lock(&clientMutex);
-        aGame.Deserialize(stream);
+        aGame.Deserialize(*stream);
         pthread_mutex_unlock(&clientMutex);
-        fprintf(stdout, "--- %llu\n", length);
-    } else {
-        errr++;
-//        if (errr % 10 == 0)
-            fprintf(stderr, "%d %llu\n", errr, length);
+        clientBuffer.FreeStream(stream);
     }
+//        fprintf(stdout, "--- %lu\n", length);
+//    } else {
+//        errr++;
+////        if (errr % 10 == 0)
+//            fprintf(stderr, "%d %lu\n", errr, length);
+//    }
     return;
 }
 

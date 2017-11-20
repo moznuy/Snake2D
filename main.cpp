@@ -93,7 +93,7 @@ checksum getSum(const char *message, size_t length) {
     return res;
 }
 
-typedef int sizeType;
+typedef unsigned int sizeType;
 const int sizeOfSize = sizeof(sizeType);
 
 class Stream {
@@ -437,7 +437,7 @@ public:
         size_t n;
         stream.Pull(n);
         snakes.clear();
-        for (int i=0; i<n; i++) {
+        for (size_t i=0; i<n; i++) {
             int index;
             stream.Pull(index);
             snakes[index] = Snake();
@@ -646,14 +646,17 @@ int main(int argc, char *argv[]) {
     
     sockaddr_in server_addr;
     pthread_t serverThread = -1, clientThread = -1;
+    bool serv;
     
     bool serverFound = FindServer(&server_addr);
     if (serverFound) {
         printf("Server found at: %s\n", inet_ntoa(server_addr.sin_addr));
+        serv = false;
     }
     else {
         printf("Server not Found. I'm the server now. Acquiring clients:\n");
         pthread_create(&serverThread, NULL, ServerThread, NULL);
+        serv = true;
     }
     usleep(100);
     pthread_mutex_init(&clientMutex, NULL);
@@ -733,10 +736,10 @@ int main(int argc, char *argv[]) {
     pthread_mutex_lock(&clientMutex);
     Exit = true;
     pthread_mutex_unlock(&clientMutex);
-    if (serverThread != -1)
+    pthread_join(clientThread, NULL);
+    if (serv)
         pthread_join(serverThread, NULL);
-    if (clientThread != -1)
-        pthread_join(clientThread, NULL);
+
     return 0;
 }
 

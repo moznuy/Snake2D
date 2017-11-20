@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include "BroadCast.h"
+#include "Memory.h"
 
 using namespace std;
 
@@ -35,12 +36,20 @@ enum direction {
 
 struct Point {
     int x, y;
+    static const int modulus = 101;
     Point() {
         x = y = 0;
     }
     Point(int x, int y) {
         this->x = x;
         this->y = y;
+    }
+    Point(Stream &s) {
+        uint16_t pos;
+        s.Pull(pos);
+        
+        x = pos / modulus;
+        y = pos % modulus;
     }
     
     Point operator+(const Point &arg) {
@@ -51,6 +60,10 @@ struct Point {
     }
     
     static map<direction, Point> delta;
+    
+    void Serialize(Stream &s) {
+        s.Push(uint16_t(x * modulus + y));
+    }
 };
 
 map<direction, Point> Point::delta = {
@@ -61,183 +74,6 @@ map<direction, Point> Point::delta = {
     {West,  {-1, 0}},
 };
 
-typedef unsigned int sizeType;
-const int sizeOfSize = sizeof(sizeType);
-
-class Stream {
-    char *stream;
-    size_t capacity;
-    size_t pos;
-    
-    bool own;
-    
-    void SetSize(sizeType size) {
-        if (!own)
-            throw runtime_error("Stream is not mine");
-        
-        *(sizeType *)stream = size;
-    }
-    
-    void Dispose(bool completly) {
-        if (!own)
-            return;
-        
-        if (stream != nullptr) {
-            delete[] stream;
-        }
-        if (completly) {
-            stream = nullptr;
-        } else {
-            stream = new char[sizeOfSize];
-            capacity = sizeOfSize;
-            Clear();
-        }
-    }
-    
-    void Reserve(size_t newCapacity) {
-        if (!own)
-            throw runtime_error("Stream is not mine");
-        
-        if (newCapacity > this->capacity) {
-            char *nw = new char[newCapacity];
-            if (stream != nullptr) {
-                memcpy(nw, stream, GetSize());
-                delete[] stream;
-            }
-            stream = nw;
-            this->capacity = newCapacity;
-        }
-    }
-public:
-    Stream() {
-        stream = new char[sizeOfSize];
-        capacity = sizeOfSize;
-        
-        own = true;
-        Clear();
-    }
-    Stream(char *data, size_t length) {
-        stream = data;
-        capacity = length;
-        pos = sizeOfSize;
-        
-        own = false;
-    }
-    
-    sizeType GetSize() const {
-        return *(sizeType *)stream;
-    }
-    
-    void Clear() {
-        if (!own)
-            throw runtime_error("Stream is not mine");
-        
-        SetSize(sizeOfSize);
-        ResetRead();
-    }
-    
-    
-    
-    virtual ~Stream() {
-        Dispose(true);
-    }
-
-    template<typename T>
-    void Push(const T &info) {
-        if (!own)
-            throw runtime_error("Stream is not mine");
-        
-        auto size = GetSize();
-        if (size + sizeof(T) > capacity) {
-            Reserve(max(sizeType(size * 2), sizeType(size + sizeof(T))));
-        }
-        memcpy(stream + size, &info, sizeof(T));
-        size += sizeof(T);
-        SetSize(size);
-    }
-
-    void ResetRead() {
-        pos = sizeOfSize;
-    }
-    
-    template<typename T>
-    void Pull(T &info) {
-        if (sizeof(T) + pos > GetSize()) {
-            throw runtime_error("out of bound exception");
-        }
-        memcpy(&info, stream + pos, sizeof(T));
-        pos += sizeof(T);
-    }
-    
-    pair<const char*, size_t> Data() const {
-        return make_pair(stream, GetSize());
-    }
-};
-
-class Buffer {
-    char *buffer;
-    size_t size;
-    size_t capacity;
-    void Reserve(size_t newCapacity) {
-        if (newCapacity > this->capacity) {
-            char *nw = new char[newCapacity];
-            if (buffer != nullptr) {
-                memcpy(nw, buffer, size);
-                delete[] buffer;
-            }
-            buffer = nw;
-            this->capacity = newCapacity;
-        }
-    }
-public:
-    Buffer() {
-        buffer = nullptr;
-        size = 0;
-        capacity = 0;
-    }
-    
-    void Add(const char *data, size_t length) {
-        if (size + length > capacity) {
-            Reserve(max(size * 2, size + length));
-        }
-        memcpy(buffer + size, data, length);
-        size += length;
-    }
-    
-    Stream* GetStream() {
-        if (size <= sizeOfSize)
-            return nullptr;
-        
-        sizeType requiredSize = *(sizeType *)buffer;
-        if (size < requiredSize)
-            return nullptr;
-        
-        return new Stream(buffer, requiredSize);
-    }
-    
-    void FreeStream(Stream *stream) {
-        sizeType requiredSize = *(sizeType *)buffer;
-        size -= requiredSize;
-        memmove(buffer, buffer + requiredSize, size);
-        delete stream;
-    }
-    
-    void Dispose() {
-        if (buffer != nullptr) {
-            delete[] buffer;
-            buffer = nullptr;
-            size = 0;
-            capacity = 0;
-        }
-    }
-    
-    virtual ~Buffer() {
-        Dispose();
-    }
-
-};
-
-
 class Snake {
     vector<Point> positions;
     direction dir;
@@ -247,6 +83,16 @@ public:
     Snake() {
         new_dir = dir = None;
         positions.push_back({20, 20});
+    }
+    Snake(Stream &stream) {
+        size_t n;
+        stream.Pull(n);
+        positions.resize(n);
+        for (auto &it: positions) {
+            it = Point(stream);
+        }
+        stream.Pull(dir);
+        stream.Pull(new_dir);
     }
     void Progress() {
         for (int i=positions.size() - 1; i>0; i--)
@@ -290,21 +136,10 @@ public:
     void Serialize(Stream &stream) {
         stream.Push(positions.size());
         for (auto &it: positions) {
-            stream.Push(it);
+            it.Serialize(stream);
         }
         stream.Push(dir);
         stream.Push(new_dir);
-    }
-    void Deserialize(Stream &stream) {
-        size_t n;
-        stream.Pull(n);
-        positions.clear();
-        positions.resize(n);
-        for (auto &it: positions) {
-            stream.Pull(it);
-        }
-        stream.Pull(dir);
-        stream.Pull(new_dir);
     }
 };
 
@@ -312,8 +147,13 @@ class Berry{
     Point pos;
     
 public:
+    Berry() {
+    }
     Berry(Point pos) {
         this->pos = pos;
+    }
+    Berry(Stream &stream) {
+        pos = Point(stream);
     }
     Point getPosition() const {
         return pos;
@@ -325,10 +165,7 @@ public:
         SDL_RenderDrawLine(renderer, (pos.x)*8,     (pos.y)*8 + 4, (pos.x)*8 + 4, (pos.y)*8    );
     }
     void Serialize(Stream &stream) {
-        stream.Push(pos);
-    }
-    void Deserialize(Stream &stream) {
-        stream.Pull(pos);
+        pos.Serialize(stream);
     }
 };
 
@@ -338,6 +175,19 @@ class Game {
 public:
     Game():b(Berry({10, 30})) {
     }
+    
+    Game(Stream &stream) {
+        stream.ResetRead();
+        size_t n;
+        stream.Pull(n);
+        for (size_t i=0; i<n; i++) {
+            int index;
+            stream.Pull(index);
+            snakes[index] = Snake(stream);
+        }
+        b = Berry(stream);
+    }
+    
     void AddSnake(int id) {
         snakes.insert(make_pair(id, Snake()));
     }
@@ -381,20 +231,6 @@ public:
             it.second.Serialize(stream);
         }
         b.Serialize(stream);
-    }
-    
-    void Deserialize(Stream &stream) {
-        stream.ResetRead();
-        size_t n;
-        stream.Pull(n);
-        snakes.clear();
-        for (size_t i=0; i<n; i++) {
-            int index;
-            stream.Pull(index);
-            snakes[index] = Snake();
-            snakes[index].Deserialize(stream);
-        }
-        b.Deserialize(stream);
     }
 };
 
@@ -517,10 +353,10 @@ void* ServerThread(void *data) {
         if (++progress % 20 == 0) {
             TheGame.Progress();
             TheGame.Serialize(stream);
-            auto data = stream.Data();
-            if (data.second == 0)
+            auto data = stream.Get();
+            if (data.length == 0)
                 throw runtime_error("why?");
-            server.SendToAll(data.first, data.second);
+            server.SendToAll(data.data, data.length);
             stream.Clear();
         }
     }
@@ -544,16 +380,10 @@ void HandleNewMessageClient(const char *message, size_t length) {
     Stream *stream = clientBuffer.GetStream();
     if (stream != nullptr) {
         pthread_mutex_lock(&clientMutex);
-        aGame.Deserialize(*stream);
+        aGame = Game(*stream);
         pthread_mutex_unlock(&clientMutex);
         clientBuffer.FreeStream(stream);
     }
-//        fprintf(stdout, "--- %lu\n", length);
-//    } else {
-//        errr++;
-////        if (errr % 10 == 0)
-//            fprintf(stderr, "%d %lu\n", errr, length);
-//    }
     return;
 }
 

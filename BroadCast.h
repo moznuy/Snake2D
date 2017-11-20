@@ -79,7 +79,7 @@ public:
         void (*newMessage)(const char *message, size_t length)
     );
 //    void TryConnect();
-    void HandleNewEvents(int usecs);
+    bool HandleNewEvents(int usecs);
     void Send(const char *message, size_t length);
     bool Closed();
     void Close();

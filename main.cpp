@@ -390,6 +390,10 @@ void HandleNewMessageClient(const char *message, size_t length) {
 // TODO: IMPLEMENT normal stream!!!
 
 void ClientThread(sockaddr_in *data) {
+    chrono::system_clock cl;
+    auto tp = cl.now();
+    int k = 0;
+    
     struct sockaddr_in server_addr;
     memcpy(&server_addr, data, sizeof(sockaddr_in));
     
@@ -402,7 +406,16 @@ void ClientThread(sockaddr_in *data) {
         }
         clientMutex.unlock();
         
-        client.HandleNewEvents(1000);
+        if (client.HandleNewEvents(1000))
+            k++;
+        
+        auto tmp = cl.now();
+        if ((tmp - tp) >= chrono::seconds(1)) {
+            tp = tmp;
+            printf("%d\n", k);
+            k = 0;
+        }
+        
         if (client.Closed()) {
             clientMutex.lock();
             Exit = true;

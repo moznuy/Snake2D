@@ -243,7 +243,7 @@ TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const
     }
 }
 
-void TcpClient::HandleNewEvents(int usecs) {
+bool TcpClient::HandleNewEvents(int usecs) {
     struct timeval tim = {0, usecs};
     
     fd_set readfds, writefds;
@@ -272,12 +272,12 @@ void TcpClient::HandleNewEvents(int usecs) {
             if (errno != EINPROGRESS)
                 throw runtime_error("connection error");
             else 
-                return;
+                return false;
 //                throw runtime_error("must never happen. maybe?");
         }
         
         connected = true;
-        return;
+        return true;
     }
     
     if (FD_ISSET(sock, &readfds)) {
@@ -298,7 +298,10 @@ void TcpClient::HandleNewEvents(int usecs) {
             this->connection_closed = true;
             close(sock);
         }
+        
+        return true;
     }
+    return false;
 }
 
 

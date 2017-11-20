@@ -33,65 +33,33 @@ enum direction {
     West,
 };
 
-map<direction, SDL_Point> delta = {
+struct Point {
+    int x, y;
+    Point() {
+        x = y = 0;
+    }
+    Point(int x, int y) {
+        this->x = x;
+        this->y = y;
+    }
+    
+    Point operator+(const Point &arg) {
+        return {x + arg.x, y + arg.y};
+    }
+    bool operator==(const Point &arg) {
+        return x == arg.x && y == arg.y;
+    }
+    
+    static map<direction, Point> delta;
+};
+
+map<direction, Point> Point::delta = {
     {None,  {0,  0}}, 
     {North, {0, -1}}, 
     {East,  {1,  0}},
     {South, {0,  1}},
     {West,  {-1, 0}},
 };
-
-SDL_Point operator+(const SDL_Point &a, const SDL_Point &b) {
-    return {a.x + b.x, a.y + b.y};
-}
-
-bool operator==(const SDL_Point &a, const SDL_Point &b) {
-    return a.x == b.x && a.y == b.y;
-}
-
-//typedef uint8_t crc;
-//#define WIDTH  (8 * sizeof(crc))
-//#define TOPBIT (1 << (WIDTH - 1))
-//#define POLYNOMIAL 0xD7
-//
-//crc  crcTable[256];
-//
-//void crcInit(void) {
-//    crc  remainder;
-//    for (int dividend = 0; dividend < 256; ++dividend) {
-//        remainder = dividend << (WIDTH - 8);
-//
-//        for (uint8_t bit = 8; bit > 0; --bit) {		
-//            if (remainder & TOPBIT)
-//                remainder = (remainder << 1) ^ POLYNOMIAL;
-//            else
-//                remainder = (remainder << 1);
-//        }
-//        crcTable[dividend] = remainder;
-//    }
-//} 
-//
-//crc crcFast(const uint8_t *message, int nBytes)
-//{
-//    uint8_t data;
-//    crc remainder = 0;
-//
-//    for (int byte = 0; byte < nBytes; ++byte)
-//    {
-//        data = message[byte] ^ (remainder >> (WIDTH - 8));
-//        remainder = crcTable[data] ^ (remainder << 8);
-//    }
-//    return (remainder);
-//}
-
-typedef unsigned long long checksum;
-checksum getSum(const char *message, size_t length) {
-    checksum res = 0;
-    for (size_t i = 0; i < length; i++) {
-        res += message[i];
-    }
-    return res;
-}
 
 typedef unsigned int sizeType;
 const int sizeOfSize = sizeof(sizeType);
@@ -174,9 +142,6 @@ public:
         Dispose(true);
     }
 
-    
-
-    
     template<typename T>
     void Push(const T &info) {
         if (!own)
@@ -190,20 +155,7 @@ public:
         size += sizeof(T);
         SetSize(size);
     }
-    
-//    void AddCrc() {
-//        checksum check = getSum(stream, size);  //(crc *)stream, size);
-//        Push(check);
-//    }
-//    
-//    bool ChechCrc() {
-//        if (size < sizeof(checksum))
-//            throw runtime_error("nope");
-//        size -= sizeof(checksum);
-//        checksum check = getSum(stream, size);  //crcFast((crc *)stream, size);
-//        return check == *(checksum *)(stream + size);
-//    }
-    
+
     void ResetRead() {
         pos = sizeOfSize;
     }
@@ -221,7 +173,6 @@ public:
         return make_pair(stream, GetSize());
     }
 };
-
 
 class Buffer {
     char *buffer;
@@ -288,7 +239,7 @@ public:
 
 
 class Snake {
-    vector<SDL_Point> positions;
+    vector<Point> positions;
     direction dir;
     direction new_dir;
     
@@ -305,7 +256,7 @@ public:
             dir = new_dir;
         }
         
-        positions[0] = positions[0] + delta[dir];
+        positions[0] = positions[0] + Point::delta[dir];
         if (positions[0].x > 100 - 1)
             positions[0].x = 0; 
         else if (positions[0].y > 100 - 1)
@@ -332,7 +283,7 @@ public:
         positions.push_back(positions.back());
     }
     
-    vector<SDL_Point>& getPositions() {
+    vector<Point>& getPositions() {
         return positions;
     }
     
@@ -358,13 +309,13 @@ public:
 };
 
 class Berry{
-    SDL_Point pos;
+    Point pos;
     
 public:
-    Berry(SDL_Point pos) {
+    Berry(Point pos) {
         this->pos = pos;
     }
-    SDL_Point getPosition() const {
+    Point getPosition() const {
         return pos;
     }
     void Draw(SDL_Renderer* renderer) {

@@ -95,24 +95,27 @@ public:
         stream.Pull(new_dir);
     }
     void Progress() {
-        for (int i=positions.size() - 1; i>0; i--)
+        for (int i=positions.size() - 1; i>0; i--) {
             positions[i] = positions[i - 1];
+        }
         
         if (dir == None || abs(new_dir - dir) != 2 ) {
             dir = new_dir;
         }
         
         positions[0] = positions[0] + Point::delta[dir];
-        if (positions[0].x > 100 - 1)
+        if (positions[0].x > 100 - 1) {
             positions[0].x = 0; 
-        else if (positions[0].y > 100 - 1)
+        }
+        else if (positions[0].y > 100 - 1) {
             positions[0].y = 0;
-        else if (positions[0].x < 0)
+        }
+        else if (positions[0].x < 0) {
             positions[0].x = 100 - 1;
-        else if (positions[0].y < 0)
+        }
+        else if (positions[0].y < 0) {
             positions[0].y = 100 - 1;
-        
-//        mvprintw(0, 0, "%d %d", positions[0].y, positions[0].x);
+        }
     }
     void Turn(direction newDir) {
         new_dir = newDir;   
@@ -173,7 +176,7 @@ class Game {
     map<int, Snake> snakes;
     Berry b;
 public:
-    Game():b(Berry({10, 30})) {
+    Game():b(Berry({rand()%100, rand()%100})) {
     }
     
     Game(Stream &stream) {
@@ -321,9 +324,9 @@ void HandleOldClient(int id) {
     printf("Client with id %d disconnected\n", id);
 }
 
-pthread_mutex_t clientMutex;
+mutex clientMutex;
 
-void* ServerThread(void *data) {
+void ServerThread() {
     //UDP
     UdpCatcher *broadcast;
     UdpSender *response;
@@ -338,12 +341,12 @@ void* ServerThread(void *data) {
 //    TheGame.AddSnake(-1);
 //    TheGame.Turn(-1, East);
     while (true) {
-        pthread_mutex_lock(&clientMutex);
+        clientMutex.lock();
         if (Exit) {
-            pthread_mutex_unlock(&clientMutex);
+            clientMutex.unlock();
             break;
         }
-        pthread_mutex_unlock(&clientMutex);
+        clientMutex.unlock();
         
         if (TryAnswerToClients(broadcast, response, &client_addr, 1000))
             printf("Got client at %s:%hu\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
@@ -363,13 +366,10 @@ void* ServerThread(void *data) {
     broadcast->Close();
     response->Close();
     server.Close();
-    
-    pthread_exit(NULL);
 }
 
 char key;
 
-//static int errr = 0;
 
 Buffer clientBuffer;
 //Dispose later
@@ -379,9 +379,9 @@ void HandleNewMessageClient(const char *message, size_t length) {
     
     Stream *stream = clientBuffer.GetStream();
     if (stream != nullptr) {
-        pthread_mutex_lock(&clientMutex);
+        clientMutex.lock();
         aGame = Game(*stream);
-        pthread_mutex_unlock(&clientMutex);
+        clientMutex.unlock();
         clientBuffer.FreeStream(stream);
     }
     return;
@@ -389,60 +389,55 @@ void HandleNewMessageClient(const char *message, size_t length) {
 
 // TODO: IMPLEMENT normal stream!!!
 
-void* ClientThread(void *data) {
+void ClientThread(sockaddr_in *data) {
     struct sockaddr_in server_addr;
     memcpy(&server_addr, data, sizeof(sockaddr_in));
     
     TcpClient client(&server_addr, HandleNewMessageClient);
     while (true) {
-        pthread_mutex_lock(&clientMutex);
+        clientMutex.lock();
         if (Exit) {
-            pthread_mutex_unlock(&clientMutex);
+            clientMutex.unlock();
             break;
         }
-        pthread_mutex_unlock(&clientMutex);
+        clientMutex.unlock();
         
         client.HandleNewEvents(1000);
         if (client.Closed()) {
-            pthread_mutex_lock(&clientMutex);
+            clientMutex.lock();
             Exit = true;
-            pthread_mutex_unlock(&clientMutex);
+            clientMutex.unlock();
             break;
         }
         
-        pthread_mutex_lock(&clientMutex);
+        clientMutex.lock();
         // if connected !!!!!!! TODOO DODODODOo
         if (key) {
             client.Send(&key, 1);
             key = 0;
         } 
-        pthread_mutex_unlock(&clientMutex);
+        clientMutex.unlock();
     }
     client.Close();
-    pthread_exit(NULL);
 }
 
 int main(int argc, char *argv[]) {
 //    crcInit();
     
     sockaddr_in server_addr;
-    pthread_t serverThread = -1, clientThread = -1;
-    bool serv;
+    thread *serverThread = nullptr, *clientThread = nullptr;
     
     bool serverFound = FindServer(&server_addr);
     if (serverFound) {
         printf("Server found at: %s\n", inet_ntoa(server_addr.sin_addr));
-        serv = false;
     }
     else {
         printf("Server not Found. I'm the server now. Acquiring clients:\n");
-        pthread_create(&serverThread, NULL, ServerThread, NULL);
-        serv = true;
+        serverThread = new thread(ServerThread);
     }
     usleep(100);
-    pthread_mutex_init(&clientMutex, NULL);
     key = 0;
-    pthread_create(&clientThread, NULL, ClientThread, &server_addr);
+    clientThread = new thread(ClientThread, &server_addr);
     
     if (SDL_Init(SDL_INIT_VIDEO) == 0) {
         SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" );
@@ -463,9 +458,9 @@ int main(int argc, char *argv[]) {
                 SDL_RenderClear(renderer);
                 
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-                pthread_mutex_lock(&clientMutex);
+                clientMutex.lock();
                 aGame.Draw(renderer);
-                pthread_mutex_unlock(&clientMutex);
+                clientMutex.unlock();
                 
                 SDL_RenderPresent(renderer);
                 
@@ -474,7 +469,7 @@ int main(int argc, char *argv[]) {
                         done = SDL_TRUE;
                     }
                     if (event.type == SDL_KEYDOWN) {
-                        pthread_mutex_lock(&clientMutex);
+                        clientMutex.lock();
                         if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)
                             done = SDL_TRUE;
                         // EXIT =TRUE
@@ -494,7 +489,7 @@ int main(int argc, char *argv[]) {
                             
 //                        if (event.key.keysym.scancode == SDL_SCANCODE_P)
 //                            g.Grow_tmp(0);
-                        pthread_mutex_unlock(&clientMutex);
+                        clientMutex.unlock();
                     }
                 }
                 
@@ -514,13 +509,14 @@ int main(int argc, char *argv[]) {
     }
     SDL_Quit();
     
-    pthread_mutex_lock(&clientMutex);
+    clientMutex.lock();
     Exit = true;
-    pthread_mutex_unlock(&clientMutex);
-    pthread_join(clientThread, NULL);
-    if (serv)
-        pthread_join(serverThread, NULL);
-
+    clientMutex.unlock();
+    if (clientThread != nullptr)
+        clientThread->join();
+    if (serverThread != nullptr)
+        serverThread->join();
+    clientBuffer.Dispose();
     return 0;
 }
 

@@ -12,6 +12,7 @@
  */
 
 // scp ./dist/Debug/GNU-Linux/snake2d sberko@10.70.80.96:/home/sberko/Tmp/snake2d
+// scp ./dist/Release/GNU-Linux/snake2d sberko@10.70.80.96:/home/sberko/Tmp/snake2d
 
 #include <cstdlib>
 #include <bits/stdc++.h>
@@ -327,6 +328,10 @@ void HandleOldClient(int id) {
 mutex clientMutex;
 
 void ServerThread() {
+//    chrono::system_clock cl;
+//    auto tp = cl.now();
+//    int k = 0;
+    
     //UDP
     UdpCatcher *broadcast;
     UdpSender *response;
@@ -351,7 +356,14 @@ void ServerThread() {
         if (TryAnswerToClients(broadcast, response, &client_addr, 1000))
             printf("Got client at %s:%hu\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         
-        server.HandleNewEvents(1000);
+        /*k += */server.HandleNewEvents(1000);
+        
+//        auto tmp = cl.now();
+//        if ((tmp - tp) >= chrono::seconds(1)) {
+//            tp = tmp;
+//            printf("%d\n", k);
+//            k = 0;
+//        }
         
         if (++progress % 20 == 0) {
             TheGame.Progress();
@@ -390,9 +402,9 @@ void HandleNewMessageClient(const char *message, size_t length) {
 // TODO: IMPLEMENT normal stream!!!
 
 void ClientThread(sockaddr_in *data) {
-    chrono::system_clock cl;
-    auto tp = cl.now();
-    int k = 0;
+//    chrono::system_clock cl;
+//    auto tp = cl.now();
+//    int k = 0;
     
     struct sockaddr_in server_addr;
     memcpy(&server_addr, data, sizeof(sockaddr_in));
@@ -406,15 +418,15 @@ void ClientThread(sockaddr_in *data) {
         }
         clientMutex.unlock();
         
-        if (client.HandleNewEvents(1000))
-            k++;
+        if (client.HandleNewEvents(1000));
+//            k++;
         
-        auto tmp = cl.now();
-        if ((tmp - tp) >= chrono::seconds(1)) {
-            tp = tmp;
-            printf("%d\n", k);
-            k = 0;
-        }
+//        auto tmp = cl.now();
+//        if ((tmp - tp) >= chrono::seconds(1)) {
+//            tp = tmp;
+//            printf("%d\n", k);
+//            k = 0;
+//        }
         
         if (client.Closed()) {
             clientMutex.lock();

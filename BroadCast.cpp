@@ -139,7 +139,7 @@ TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage
         throw runtime_error("Socket listening");
 }
 
-void TcpServer::HandleNewEvents(int usecs) {
+int TcpServer::HandleNewEvents(int usecs) {
     struct timeval tim = {0, usecs};
     
     fd_set readfds;
@@ -170,8 +170,11 @@ void TcpServer::HandleNewEvents(int usecs) {
         HandleNewClient(this->nextIndex++);
     }
     
+    int count = 0;
     for (auto it = clients.begin(); it != clients.end(); ) {
         if (FD_ISSET(it->second, &readfds)) {
+            count++;
+            
             const int bufflen = 8192;
             char buff[bufflen];
             
@@ -195,6 +198,7 @@ void TcpServer::HandleNewEvents(int usecs) {
             ++it;
         }
     }
+    return count;
 }
 
 void TcpServer::SendToAll(const char *message, size_t length) {

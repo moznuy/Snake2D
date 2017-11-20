@@ -59,7 +59,7 @@ public:
         void (*newMessage)(int id, const char *message, size_t length),
         void (*oldClient)(int id)
     );
-    void HandleNewEvents(int usecs);
+    int HandleNewEvents(int usecs);
     void SendToAll(const char *message, size_t length);
     void SendToOne(int id, const char *message, size_t length);
     void Close();

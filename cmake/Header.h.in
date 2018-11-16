@@ -1,0 +1,6 @@
+#ifndef HEADER
+#define HEADER
+
+#define SYSTEM "${CMAKE_SYSTEM_NAME}"
+
+#endif

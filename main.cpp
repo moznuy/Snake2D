@@ -11,8 +11,6 @@
  * Created on November 7, 2017, 2:44 PM
  */
 
-// scp ./dist/Debug/GNU-Linux/snake2d sberko@10.70.80.96:/home/sberko/Tmp/snake2d
-// scp ./dist/Release/GNU-Linux/snake2d sberko@10.70.80.96:/home/sberko/Tmp/snake2d
 
 #include <cstdlib>
 #include <bits/stdc++.h>
@@ -24,6 +22,8 @@
 
 #include "BroadCast.h"
 #include "Memory.h"
+#include "Header.h"
+
 
 using namespace std;
 
@@ -448,7 +448,7 @@ void ClientThread(sockaddr_in *data) {
 
 int main(int argc, char *argv[]) {
 //    crcInit();
-    
+
     sockaddr_in server_addr;
     thread *serverThread = nullptr, *clientThread = nullptr;
     

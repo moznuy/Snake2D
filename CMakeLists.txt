@@ -23,4 +23,12 @@ add_executable(Snake2D ${sources})
 target_link_libraries(Snake2D ${SDL2_LIBRARY} Threads::Threads)
 
 
+#get_cmake_property(_variableNames VARIABLES)
+#list (SORT _variableNames)
+#foreach (_variableName ${_variableNames})
+#    message(STATUS "${_variableName}=${${_variableName}}")
+#endforeach()
+
+configure_file(${PROJECT_SOURCE_DIR}/cmake/Header.h.in ${PROJECT_SOURCE_DIR}/Header.h)
+
 include(CPack)

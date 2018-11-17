@@ -14,6 +14,7 @@ using namespace std;
 
 UdpCatcher::UdpCatcher(uint16_t port) {
     this->port = port;
+    this->found_on_localhost = false;
     
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) 
@@ -28,12 +29,23 @@ UdpCatcher::UdpCatcher(uint16_t port) {
     server.sin_addr.s_addr = INADDR_ANY;
     server.sin_port = htons(this->port);
     if (bind(sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) {
+        if (LAST_ERROR == FOUND_ON_LOCALHOST) {
+            this->found_on_localhost = true;
+            return;
+        }
         perror("UDP bind error");
         throw runtime_error("UDP bind error");
     }
 }
 
 bool UdpCatcher::TryRecv(struct sockaddr_in *from, int usecs) {
+    if (this->found_on_localhost) {
+        from->sin_port = 0;
+        from->sin_family = AF_INET;
+        from->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        return true;
+    }
+
     struct timeval tim = {0, usecs};
     
     fd_set readfds;
@@ -283,8 +295,7 @@ bool TcpClient::HandleNewEvents(int usecs) {
         if (ret < 0) {
             fprintf(stderr, "Socket error: %d\n", LAST_ERROR);
         } else if (ret == 0) {
-//            printf("client socket %d closed", sock);
-//            perror("closed?");
+            printf("Server connection closed");
             sockShutDown(sock);
         } else {
             HandleNewMessage(buff, ret);

@@ -483,6 +483,8 @@ int main(int argc, char *argv[]) {
                 
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
                 clientMutex.lock();
+                if (Exit)
+                    done = SDL_TRUE;
                 aGame.Draw(renderer);
                 clientMutex.unlock();
                 

@@ -13,6 +13,7 @@
 
     #define LAST_ERROR WSAGetLastError()
     #define OPERATION_IN_PROGRESS WSAEWOULDBLOCK
+    #define FOUND_ON_LOCALHOST WSAEADDRINUSE
 #else
     #include <sys/select.h>
     #include <sys/socket.h>
@@ -27,6 +28,7 @@
 
     #define LAST_ERROR errno
     #define OPERATION_IN_PROGRESS EINPROGRESS
+    #define FOUND_ON_LOCALHOST EADDRINUSE
 #endif
 
 int sockInit();

@@ -24,6 +24,7 @@ class UdpCatcher {
 private:
     SOCKET sock;
     uint16_t port;
+    bool found_on_localhost;
     
 public:
     UdpCatcher(uint16_t port);

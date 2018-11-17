@@ -15,14 +15,14 @@
 #define BROADCAST_H
 
 #include <cstdint>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <map>
+
+#include "Network.h"
 
 // TODO: Close
 class UdpCatcher {
 private:
-    int sock;
+    SOCKET sock;
     uint16_t port;
     
 public:
@@ -33,7 +33,7 @@ public:
 
 class UdpSender {
 private:
-    int sock;
+    SOCKET sock;
     bool broadcast;
     uint16_t broadcast_port;
     
@@ -45,8 +45,8 @@ public:
 
 class TcpServer {
 private:
-    int listening_sock;
-    std::map<int, int> clients;
+    SOCKET listening_sock;
+    std::map<int, SOCKET> clients;
     int nextIndex;
     
     void (*HandleNewClient)(int id);
@@ -68,7 +68,7 @@ public:
 class TcpClient {
 private:
 //    struct sockaddr_in server_address;
-    int sock;
+    SOCKET sock;
     bool connected;
     bool connection_closed;
     

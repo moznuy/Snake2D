@@ -14,15 +14,15 @@
 
 #include <cstdlib>
 #include <bits/stdc++.h>
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
-#include <netinet/in.h>
-#include <arpa/inet.h>
+//#include <netinet/in.h>
+//#include <arpa/inet.h>
 #include <unistd.h>
 
 #include "BroadCast.h"
 #include "Memory.h"
-#include "Header.h"
+#include "Network.h"
 
 
 using namespace std;
@@ -447,6 +447,7 @@ void ClientThread(sockaddr_in *data) {
 }
 
 int main(int argc, char *argv[]) {
+    sockInit();
 //    crcInit();
 
     sockaddr_in server_addr;
@@ -542,6 +543,8 @@ int main(int argc, char *argv[]) {
     if (serverThread != nullptr)
         serverThread->join();
     clientBuffer.Dispose();
+
+    sockQuit();
     return 0;
 }
 

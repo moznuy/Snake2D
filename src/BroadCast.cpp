@@ -8,189 +8,126 @@
 
 #include <stdexcept>
 #include <cstring>
+#include <memory>
 
 // blocking
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/select.h>
-#include <sys/socket.h>
+//#include <sys/select.h>
+//#include <sys/socket.h>
 
 #include <algorithm>
-#include <bits/errno.h>
-#include <csignal>
+//#include <bits/errno.h>
+//#include <csignal>
 
 using namespace std;
 
 UdpCatcher::UdpCatcher(uint16_t port) {
-    this->port = port;
-    
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) 
-        throw runtime_error("Socket creation");
+    this->sock.setBlocking(false);
 
-    if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0)
-        throw runtime_error("Socket blocking");
-
-    struct sockaddr_in server;
-    memset(&server, 0, sizeof(sockaddr_in));
-    server.sin_family = AF_INET;
-    server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = htons(this->port);
-    if (bind(sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) {
-        perror("UDP bind error");
+    if (this->sock.bind(port) == sf::Socket::Status::Error) {
         throw runtime_error("UDP bind error");
     }
 }
 
-bool UdpCatcher::TryRecv(struct sockaddr_in *from, int usecs) {
-    struct timeval tim = {0, usecs};
-    
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(sock, &readfds);
-    
-    int ret = select(sock + 1, &readfds, NULL, NULL, &tim);
-    if (ret == -1) {
-        perror("UDP Select error");
-        throw runtime_error("UDP Select error");
-    }
-    if (!FD_ISSET(sock, &readfds))
+bool UdpCatcher::TryRecv(sf::IpAddress &from, int usecs) {
+    sf::SocketSelector sel;
+    sel.add(this->sock);
+
+    if (!sel.wait(sf::microseconds(usecs)))
         return false;
     
-    char buff[256];
-    socklen_t len = sizeof(struct sockaddr_in);
-    if (recvfrom(sock, buff, 256, 0, (struct sockaddr *)from, &len) < 0)
+    sf::Packet pack;
+    uint16_t port;
+    if (this->sock.receive(pack, from, port) == sf::Socket::Status::Error)
         throw runtime_error("Recvfrom error");
     return true;
 }
 
 void UdpCatcher::Close() {
-    close(sock);
+    this->sock.unbind();
 }
 
-UdpSender::UdpSender(bool broadcast, uint16_t broadcast_port) {
+UdpSender::UdpSender(bool broadcast, uint16_t port) {
     this->broadcast = broadcast;
-    this->broadcast_port = broadcast_port;
-    
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) 
-        throw runtime_error("Socket creation"); 
-    
-    if (broadcast) {
-        int broadcastEnable = 1;
-        if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) < 0) 
-            throw runtime_error("Socket broadcasting option");
-    }
+    this->port = port;
 }
 
-void UdpSender::Send(sockaddr_in* to) {
-    struct sockaddr_in s;
-    if (this->broadcast) {
-        memset(&s, 0, sizeof(struct sockaddr_in));
-        s.sin_family = AF_INET;
-        s.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-    } else {
-        memcpy(&s, to, sizeof(struct sockaddr_in));
+void UdpSender::Send(const sf::IpAddress &to) {
+    sf::IpAddress t = to;
+
+    if (this->broadcast)
+        t = sf::IpAddress::Broadcast;
+
+    sf::Packet pack;
+    string message = "Searching!!!";
+    pack.append(message.c_str(), message.length() + 1);
+
+    while (true) {
+        sf::Socket::Status s = this->sock.send(pack, t, this->port);
+        if (s == sf::Socket::Status::Done)
+            break;
+        if (s == sf::Socket::Status::Error)
+            throw runtime_error("Broadcasting error");
     }
-    s.sin_port = (in_port_t)htons(this->broadcast_port);
-    
-    char buffer[256];
-    strncpy(buffer, "Searching!!!", 256);
-    
-    if (sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *)&s, sizeof(struct sockaddr_in)) < 0)
-        throw runtime_error("Broadcasting error");
 }
 
 void UdpSender::Close() {
-    close(sock);
 }
 
-TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage)(int id, const char *message, size_t length), void (*oldClient)(int id)) {
+TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage)(int id, const sf::Packet &pack), void (*oldClient)(int id)) {
     this->nextIndex = 0;
     this->HandleNewClient = newClient;
     this->HandleNewMessage = newMessage;
     this->HandleOldClient = oldClient;
-    
-    listening_sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (listening_sock < 0) 
-        throw runtime_error("Socket creation");
 
-    if (fcntl(listening_sock, F_SETFL, O_NONBLOCK) < 0)
-        throw runtime_error("Socket blocking");
+    this->listening_sock.setBlocking(false);
+    this->listening_sock.listen(port);
     
-    int yes = 1;
-    if (setsockopt(listening_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
-        perror("Reuse addr");
-        throw runtime_error("Reuse addr error");
-    } 
-    
-    
-    struct sockaddr_in server;
-    memset(&server, 0, sizeof(sockaddr_in));
-    server.sin_family = AF_INET;
-    server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = htons(port);
-    if (bind(listening_sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) {
-        perror("TcpServer bind error");
-        throw runtime_error("TcpServer bind error");
-    }
-    
-    if (listen(listening_sock, 5) < 0)
+    if (this->listening_sock.listen(port) == sf::Socket::Status::Error)
         throw runtime_error("Socket listening");
 }
 
 int TcpServer::HandleNewEvents(int usecs) {
     struct timeval tim = {0, usecs};
-    
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    
-    FD_SET(this->listening_sock, &readfds);
-    for (auto &it: clients) {
-        FD_SET(it.second, &readfds);
+
+    sf::SocketSelector sel;
+    sel.add(this->listening_sock);
+    for (auto &it: this->clients) {
+        sel.add(*it.second);
     }
-    
-    int nfds = this->listening_sock;
-    for (auto &it:clients) {
-        nfds = max(nfds, it.second);
-    }
-    
-    int ret = select(++nfds, &readfds, NULL, NULL, &tim);
-    if (ret == -1) {
-        perror("TcpServer Select error");
-        throw runtime_error("TcpServer Select error");
-    }
-    
-    if (FD_ISSET(this->listening_sock, &readfds)) {
-        struct sockaddr_in client_addr;
-        socklen_t len = sizeof(struct sockaddr_in);
-        int client = accept(this->listening_sock, (struct sockaddr *) &client_addr, &len);
-        clients.insert(make_pair(this->nextIndex, client));
-        
+
+    if (!sel.wait(sf::microseconds(usecs)))
+        return 0;
+
+    if (sel.isReady(this->listening_sock)) {
+        this->clients[this->nextIndex] = std::make_unique<sf::TcpSocket>();
+        if (this->listening_sock.accept(*clients[this->nextIndex]) == sf::Socket::Status::Error)
+            throw runtime_error("Socket accept");
         HandleNewClient(this->nextIndex++);
     }
     
     int count = 0;
-    for (auto it = clients.begin(); it != clients.end(); ) {
-        if (FD_ISSET(it->second, &readfds)) {
+    for (auto it = this->clients.begin(); it!= this->clients.end();) {
+        if (sel.isReady(*it->second)) {
             count++;
             
-            const int bufflen = 8192;
-            char buff[bufflen];
-            
-            int ret = recv(it->second, buff, bufflen, 0);
-            if (ret < 0) {
-                fprintf(stderr, "Client %d socket error: %s\n", it->first, strerror(errno));
-            } else if (ret == 0) {
-                //printf("client socket %d closed\n", it->second);
-                shutdown(it->second, SHUT_RDWR);
+            sf::Packet pack;
+            sf::Socket::Status s = it->second->receive(pack);
+
+            if (s == sf::Socket::Status::Error) {
+//                fprintf(stderr, "Client %d socket error: %s\n", it->first, strerror(errno));
+                fprintf(stderr, "Client %d socket error \n", it->first);
+            } else if (s == sf::Socket::Status::Disconnected) {
+                printf("client socket %d closed\n", it->first);
+                it->second->disconnect();
             } else {
-                HandleNewMessage(it->first, buff, ret);
+                HandleNewMessage(it->first, pack);
             }
-            if (ret <= 0) {
-                close(it->second);
+            if (s == sf::Socket::Status::Error || s == sf::Socket::Status::Disconnected) {
+                it->second->disconnect();
                 HandleOldClient(it->first);
-                it = clients.erase(it);
+                it = this->clients.erase(it);
             } else {
                 ++it;
             }
@@ -201,117 +138,98 @@ int TcpServer::HandleNewEvents(int usecs) {
     return count;
 }
 
-void TcpServer::SendToAll(const char *message, size_t length) {
-    for (auto &it: clients) {
-        send(it.second, message, length, 0);
+void TcpServer::SendToAll(const sf::Packet &pack) {
+    for (auto &it: this->clients) {
+        SendToOne(it.first, pack);
     }
 }
 
-void TcpServer::SendToOne(int id, const char *message, size_t length) {
-    // TODO: IF
-    send(clients.at(id), message, length, 0);
+void TcpServer::SendToOne(int id, const sf::Packet &pack) {
+    sf::Packet tmp;
+    tmp.append(pack.getData(), pack.getDataSize());
+    while (true) {
+        sf::Socket::Status s = this->clients[id]->send(tmp);
+        if (s == sf::Socket::Status::Done)
+            break;
+        if (s == sf::Socket::Status::Error)
+            printf("client socket %d send error\n", id);
+        printf("client socket %d sent not all. Retrying...\n", id);
+    }
 }
 
 void TcpServer::Close() {
-    for (auto &it: clients) {
+    for (auto &it: this->clients) {
 //        shutdown(it.second, FD_)
-        close(it.second);
+        it.second->disconnect();
     }
-    
-    close(this->listening_sock);
+    this->listening_sock.close();
 }
 
-TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const char*, size_t)) {
+TcpClient::TcpClient(const sf::IpAddress &server_address, uint16_t port, void (*newMessage)(const sf::Packet &pack)) {
 //    memcpy(&this->server_address, server_address, sizeof(struct sockaddr_in));
     this->connected = false;
     this->connection_closed = false;
     this->HandleNewMessage = newMessage;
-    
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) 
-        throw runtime_error("Socket creation");
 
-    if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0)
-        throw runtime_error("Socket blocking");
-    
-    int ret = connect(sock, (struct sockaddr *)server_address, sizeof(struct sockaddr_in));
-    if (ret < 0 && errno != EINPROGRESS) {
+//    this->sock.setBlocking(false);
+    sf::Socket::Status s = this->sock.connect(server_address, port, sf::milliseconds(500));
+
+    if (s == sf::Socket::Status::Error) {
         perror("Client Connect!!! error");
         throw runtime_error("Client Connect!!! error");
     }
     
-    if (ret == 0) {
-        connected = true;
-    } else {
-        // connection attempt is in progress
-    }
+//    if (s == sf::Socket::Status::Done) {
+//        connected = true;
+//    } else {
+////         connection attempt is in progress
+//    }
+    this->sock.setBlocking(false);
+    connected = true;
 }
 
 bool TcpClient::HandleNewEvents(int usecs) {
-    struct timeval tim = {0, usecs};
-    
-    fd_set readfds, writefds;
-    FD_ZERO(&readfds);
-    FD_ZERO(&writefds);
-    
-    if (this->connected)
-        FD_SET(sock, &readfds);
-    if (!this->connected)
-        FD_SET(sock, &writefds);
-    
-    int ret = select(sock + 1, &readfds, &writefds, NULL, &tim);
-    if (ret == -1) {
-        perror("Client Select error: ");
-        throw runtime_error("Client Select error: ");
-    }
-    
-    if (FD_ISSET(sock, &writefds)) {
-        int val;
-        socklen_t length = sizeof(int);
-        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &val, &length) < 0)
-            throw runtime_error("getsockopt error");
-        
-        if (val != 0) {
-//            perror("Connection errno");
-            if (errno != EINPROGRESS)
-                throw runtime_error("connection error");
-            else 
-                return false;
-//                throw runtime_error("must never happen. maybe?");
-        }
-        
-        connected = true;
-        return true;
-    }
-    
-    if (FD_ISSET(sock, &readfds)) {
-        const int bufflen = 8192;
-        char buff[bufflen];
+//    struct timeval tim = {0, usecs};
 
-        int ret = recv(sock, buff, bufflen, 0);
-        if (ret < 0) {
-            fprintf(stderr, "Socket error: %s\n", strerror(errno));
-        } else if (ret == 0) {
+    sf::SocketSelector sel;
+    sel.add(sock);
+
+    if (!sel.wait(sf::microseconds(usecs)))
+        return false;
+
+    sf::Packet pack;
+
+    sf::Socket::Status s = sock.receive(pack);
+    if (s == sf::Socket::Status::Error) {
+        fprintf(stderr, "Socket error: %s\n", strerror(errno));
+    } else if (s == sf::Socket::Status::Disconnected) {
 //            printf("client socket %d closed", sock);
 //            perror("closed?");
-            shutdown(sock, SHUT_RDWR);
-        } else {
-            HandleNewMessage(buff, ret);
-        }
-        if (ret <= 0) {
-            this->connection_closed = true;
-            close(sock);
-        }
-        
-        return true;
+        sock.disconnect();
+    } else {
+        HandleNewMessage(pack);
     }
-    return false;
+    if (s == sf::Socket::Status::Error || s == sf::Socket::Status::Disconnected) {
+        this->connection_closed = true;
+        sock.disconnect();
+    }
+
+    return true;
 }
 
 
-void TcpClient::Send(const char *message, size_t length) {
-    // TODO: IF
-    send(sock, message, length, 0);
+void TcpClient::Send(const sf::Packet &pack) {
+    sf::Packet tmp;
+    tmp.append(pack.getData(), pack.getDataSize());
+    while (true) {
+        sf::Socket::Status s = sock.send(tmp);
+        if (s == sf::Socket::Status::Done)
+            break;
+        if (s == sf::Socket::Status::Error)
+            printf("socket send error\n");
+        printf("socket sent not all. Retrying...\n");
+    }
+
 }
 
 
@@ -321,5 +239,5 @@ bool TcpClient::Closed() {
 
 
 void TcpClient::Close() {
-    close(sock);
+    sock.disconnect();
 }

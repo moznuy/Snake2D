@@ -10,17 +10,23 @@
     #include <ws2tcpip.h>
     #define in_port_t u_short
     int inet_pton(int af, const char *src, in_addr* dst);
+
+    #define LAST_ERROR WSAGetLastError()
+    #define OPERATION_IN_PROGRESS WSAEWOULDBLOCK
 #else
     #include <sys/select.h>
     #include <sys/socket.h>
     #include <arpa/inet.h>
     //#include <netdb.h>  /* Needed for getaddrinfo() and freeaddrinfo() */
     #include <unistd.h> /* Needed for close() */
-    #include <bits/errno.h>
+    #include <errno.h>
     #include <csignal>
     #include <fcntl.h>
 
-    typedef int SOCKET
+    typedef int SOCKET;
+
+    #define LAST_ERROR errno
+    #define OPERATION_IN_PROGRESS EINPROGRESS
 #endif
 
 int sockInit();

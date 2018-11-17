@@ -16,8 +16,6 @@
 #include <bits/stdc++.h>
 #include <SDL.h>
 
-//#include <netinet/in.h>
-//#include <arpa/inet.h>
 #include <unistd.h>
 
 #include "BroadCast.h"

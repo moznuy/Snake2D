@@ -171,7 +171,7 @@ int TcpServer::HandleNewEvents(int usecs) {
             
             ret = recv(it->second, buff, bufflen, 0);
             if (ret < 0) {
-                fprintf(stderr, "Client %d socket error: %s\n", it->first, strerror(errno));
+                fprintf(stderr, "Client %d socket error: %d\n", it->first, LAST_ERROR);
             } else if (ret == 0) {
                 //printf("client socket %d closed\n", it->second);
                 sockShutDown(it->second);
@@ -226,11 +226,9 @@ TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const
         throw runtime_error("Socket blocking");
     
     int ret = connect(sock, (struct sockaddr *)server_address, sizeof(struct sockaddr_in));
-    if (ret < 0 && errno != EINPROGRESS) {
-        if (WSAGetLastError() != WSAEWOULDBLOCK) {
-            perror("Client Connect!!! error");
-            throw runtime_error("Client Connect!!! error");
-        }
+    if (ret < 0 && LAST_ERROR != OPERATION_IN_PROGRESS) {
+        perror("Client Connect!!! error");
+        throw runtime_error("Client Connect!!! error");
     }
     
     if (ret == 0) {
@@ -265,8 +263,8 @@ bool TcpClient::HandleNewEvents(int usecs) {
             throw runtime_error("getsockopt error");
         
         if (val != 0) {
-//            perror("Connection errno");
-            if (errno != EINPROGRESS)
+//            perror("Connection maybe error?");
+            if (LAST_ERROR != OPERATION_IN_PROGRESS)
                 throw runtime_error("connection error");
             else 
                 return false;
@@ -283,7 +281,7 @@ bool TcpClient::HandleNewEvents(int usecs) {
 
         int ret = recv(sock, buff, bufflen, 0);
         if (ret < 0) {
-            fprintf(stderr, "Socket error: %s\n", strerror(errno));
+            fprintf(stderr, "Socket error: %d\n", LAST_ERROR);
         } else if (ret == 0) {
 //            printf("client socket %d closed", sock);
 //            perror("closed?");

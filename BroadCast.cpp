@@ -227,8 +227,10 @@ TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const
     
     int ret = connect(sock, (struct sockaddr *)server_address, sizeof(struct sockaddr_in));
     if (ret < 0 && errno != EINPROGRESS) {
-        perror("Client Connect!!! error");
-        throw runtime_error("Client Connect!!! error");
+        if (WSAGetLastError() != WSAEWOULDBLOCK) {
+            perror("Client Connect!!! error");
+            throw runtime_error("Client Connect!!! error");
+        }
     }
     
     if (ret == 0) {

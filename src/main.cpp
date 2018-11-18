@@ -14,14 +14,13 @@
 
 #include <cstdlib>
 #include <bits/stdc++.h>
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <unistd.h>
 
 #include "BroadCast.h"
 #include "Memory.h"
+#include "Network.h"
 
 
 using namespace std;
@@ -446,6 +445,7 @@ void ClientThread(sockaddr_in *data) {
 }
 
 int main(int argc, char *argv[]) {
+    sockInit();
 //    crcInit();
 
     sockaddr_in server_addr;
@@ -483,6 +483,8 @@ int main(int argc, char *argv[]) {
                 
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
                 clientMutex.lock();
+                if (Exit)
+                    done = SDL_TRUE;
                 aGame.Draw(renderer);
                 clientMutex.unlock();
                 
@@ -541,6 +543,8 @@ int main(int argc, char *argv[]) {
     if (serverThread != nullptr)
         serverThread->join();
     clientBuffer.Dispose();
+
+    sockQuit();
     return 0;
 }
 

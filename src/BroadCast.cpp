@@ -8,27 +8,19 @@
 
 #include <stdexcept>
 #include <cstring>
-
-// blocking
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-
 #include <algorithm>
-#include <bits/errno.h>
-#include <csignal>
 
 using namespace std;
 
 UdpCatcher::UdpCatcher(uint16_t port) {
     this->port = port;
+    this->found_on_localhost = false;
     
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) 
         throw runtime_error("Socket creation");
 
-    if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0)
+    if (setNonBlocking(sock) < 0)
         throw runtime_error("Socket blocking");
 
     struct sockaddr_in server;
@@ -37,12 +29,23 @@ UdpCatcher::UdpCatcher(uint16_t port) {
     server.sin_addr.s_addr = INADDR_ANY;
     server.sin_port = htons(this->port);
     if (bind(sock,(struct sockaddr *)&server, sizeof(struct sockaddr_in)) < 0) {
+        if (LAST_ERROR == FOUND_ON_LOCALHOST) {
+            this->found_on_localhost = true;
+            return;
+        }
         perror("UDP bind error");
         throw runtime_error("UDP bind error");
     }
 }
 
 bool UdpCatcher::TryRecv(struct sockaddr_in *from, int usecs) {
+    if (this->found_on_localhost) {
+        from->sin_port = 0;
+        from->sin_family = AF_INET;
+        from->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        return true;
+    }
+
     struct timeval tim = {0, usecs};
     
     fd_set readfds;
@@ -65,7 +68,7 @@ bool UdpCatcher::TryRecv(struct sockaddr_in *from, int usecs) {
 }
 
 void UdpCatcher::Close() {
-    close(sock);
+    sockClose(sock);
 }
 
 UdpSender::UdpSender(bool broadcast, uint16_t broadcast_port) {
@@ -78,7 +81,7 @@ UdpSender::UdpSender(bool broadcast, uint16_t broadcast_port) {
     
     if (broadcast) {
         int broadcastEnable = 1;
-        if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) < 0) 
+        if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (char *)&broadcastEnable, sizeof(broadcastEnable)) < 0)
             throw runtime_error("Socket broadcasting option");
     }
 }
@@ -102,7 +105,7 @@ void UdpSender::Send(sockaddr_in* to) {
 }
 
 void UdpSender::Close() {
-    close(sock);
+    sockClose(sock);
 }
 
 TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage)(int id, const char *message, size_t length), void (*oldClient)(int id)) {
@@ -115,11 +118,11 @@ TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage
     if (listening_sock < 0) 
         throw runtime_error("Socket creation");
 
-    if (fcntl(listening_sock, F_SETFL, O_NONBLOCK) < 0)
+    if (setNonBlocking(listening_sock) < 0)
         throw runtime_error("Socket blocking");
     
     int yes = 1;
-    if (setsockopt(listening_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
+    if (setsockopt(listening_sock, SOL_SOCKET, SO_REUSEADDR, (char *)&yes, sizeof(int)) < 0) {
         perror("Reuse addr");
         throw runtime_error("Reuse addr error");
     } 
@@ -150,7 +153,7 @@ int TcpServer::HandleNewEvents(int usecs) {
         FD_SET(it.second, &readfds);
     }
     
-    int nfds = this->listening_sock;
+    SOCKET nfds = this->listening_sock;
     for (auto &it:clients) {
         nfds = max(nfds, it.second);
     }
@@ -164,7 +167,7 @@ int TcpServer::HandleNewEvents(int usecs) {
     if (FD_ISSET(this->listening_sock, &readfds)) {
         struct sockaddr_in client_addr;
         socklen_t len = sizeof(struct sockaddr_in);
-        int client = accept(this->listening_sock, (struct sockaddr *) &client_addr, &len);
+        SOCKET client = accept(this->listening_sock, (struct sockaddr *) &client_addr, &len);
         clients.insert(make_pair(this->nextIndex, client));
         
         HandleNewClient(this->nextIndex++);
@@ -178,17 +181,17 @@ int TcpServer::HandleNewEvents(int usecs) {
             const int bufflen = 8192;
             char buff[bufflen];
             
-            int ret = recv(it->second, buff, bufflen, 0);
+            ret = recv(it->second, buff, bufflen, 0);
             if (ret < 0) {
-                fprintf(stderr, "Client %d socket error: %s\n", it->first, strerror(errno));
+                fprintf(stderr, "Client %d socket error: %d\n", it->first, LAST_ERROR);
             } else if (ret == 0) {
                 //printf("client socket %d closed\n", it->second);
-                shutdown(it->second, SHUT_RDWR);
+                sockShutDown(it->second);
             } else {
                 HandleNewMessage(it->first, buff, ret);
             }
             if (ret <= 0) {
-                close(it->second);
+                sockClose(it->second);
                 HandleOldClient(it->first);
                 it = clients.erase(it);
             } else {
@@ -215,10 +218,10 @@ void TcpServer::SendToOne(int id, const char *message, size_t length) {
 void TcpServer::Close() {
     for (auto &it: clients) {
 //        shutdown(it.second, FD_)
-        close(it.second);
+        sockClose(it.second);
     }
-    
-    close(this->listening_sock);
+
+    sockClose(this->listening_sock);
 }
 
 TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const char*, size_t)) {
@@ -231,11 +234,11 @@ TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const
     if (sock < 0) 
         throw runtime_error("Socket creation");
 
-    if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0)
+    if (setNonBlocking(sock) < 0)
         throw runtime_error("Socket blocking");
     
     int ret = connect(sock, (struct sockaddr *)server_address, sizeof(struct sockaddr_in));
-    if (ret < 0 && errno != EINPROGRESS) {
+    if (ret < 0 && LAST_ERROR != OPERATION_IN_PROGRESS) {
         perror("Client Connect!!! error");
         throw runtime_error("Client Connect!!! error");
     }
@@ -268,12 +271,12 @@ bool TcpClient::HandleNewEvents(int usecs) {
     if (FD_ISSET(sock, &writefds)) {
         int val;
         socklen_t length = sizeof(int);
-        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &val, &length) < 0)
+        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *)&val, &length) < 0)
             throw runtime_error("getsockopt error");
         
         if (val != 0) {
-//            perror("Connection errno");
-            if (errno != EINPROGRESS)
+//            perror("Connection maybe error?");
+            if (LAST_ERROR != OPERATION_IN_PROGRESS)
                 throw runtime_error("connection error");
             else 
                 return false;
@@ -290,17 +293,16 @@ bool TcpClient::HandleNewEvents(int usecs) {
 
         int ret = recv(sock, buff, bufflen, 0);
         if (ret < 0) {
-            fprintf(stderr, "Socket error: %s\n", strerror(errno));
+            fprintf(stderr, "Socket error: %d\n", LAST_ERROR);
         } else if (ret == 0) {
-//            printf("client socket %d closed", sock);
-//            perror("closed?");
-            shutdown(sock, SHUT_RDWR);
+            printf("Server connection closed");
+            sockShutDown(sock);
         } else {
             HandleNewMessage(buff, ret);
         }
         if (ret <= 0) {
             this->connection_closed = true;
-            close(sock);
+            sockClose(sock);
         }
         
         return true;
@@ -321,5 +323,5 @@ bool TcpClient::Closed() {
 
 
 void TcpClient::Close() {
-    close(sock);
+    sockClose(sock);
 }

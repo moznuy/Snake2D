@@ -14,6 +14,7 @@
     #define LAST_ERROR WSAGetLastError()
     #define OPERATION_IN_PROGRESS WSAEWOULDBLOCK
     #define FOUND_ON_LOCALHOST WSAEADDRINUSE
+    #define BROADCAST_ADDR (3232235620 & (0xffffffff << (32 - 24))) | (0xffffffff >> 24)
 #else
     #include <sys/select.h>
     #include <sys/socket.h>
@@ -29,6 +30,7 @@
     #define LAST_ERROR errno
     #define OPERATION_IN_PROGRESS EINPROGRESS
     #define FOUND_ON_LOCALHOST EADDRINUSE
+    #define BROADCAST_ADDR INADDR_BROADCAST
 #endif
 
 int sockInit();

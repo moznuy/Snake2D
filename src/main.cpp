@@ -45,7 +45,7 @@ struct Point {
     }
     Point(Stream &s) {
         uint16_t pos;
-        s.Pull(pos);
+        s.Pull<uint16_t>(pos);
         
         x = pos / modulus;
         y = pos % modulus;
@@ -61,7 +61,7 @@ struct Point {
     static map<direction, Point> delta;
     
     void Serialize(Stream &s) {
-        s.Push(uint16_t(x * modulus + y));
+        s.Push<uint16_t>(x * modulus + y);
     }
 };
 
@@ -84,14 +84,14 @@ public:
         positions.push_back({20, 20});
     }
     Snake(Stream &stream) {
-        size_t n;
-        stream.Pull(n);
+        uint32_t n;
+        stream.Pull<uint32_t>(n);
         positions.resize(n);
         for (auto &it: positions) {
             it = Point(stream);
         }
-        stream.Pull(dir);
-        stream.Pull(new_dir);
+        stream.Pull<direction>(dir);
+        stream.Pull<direction>(new_dir);
     }
     void Progress() {
         for (int i=positions.size() - 1; i>0; i--) {
@@ -136,12 +136,12 @@ public:
     }
     
     void Serialize(Stream &stream) {
-        stream.Push(positions.size());
+        stream.Push<uint32_t>(positions.size());
         for (auto &it: positions) {
             it.Serialize(stream);
         }
-        stream.Push(dir);
-        stream.Push(new_dir);
+        stream.Push<direction>(dir);
+        stream.Push<direction>(new_dir);
     }
 };
 
@@ -180,11 +180,11 @@ public:
     
     Game(Stream &stream) {
         stream.ResetRead();
-        size_t n;
-        stream.Pull(n);
+        uint32_t n;
+        stream.Pull<uint32_t>(n);
         for (size_t i=0; i<n; i++) {
-            int index;
-            stream.Pull(index);
+            uint16_t index;
+            stream.Pull<uint16_t>(index);
             snakes[index] = Snake(stream);
         }
         b = Berry(stream);
@@ -227,9 +227,9 @@ public:
     
     void Serialize(Stream &stream) {
         stream.Clear();
-        stream.Push(snakes.size());
+        stream.Push<uint32_t>(snakes.size());
         for (auto &it: snakes) {
-            stream.Push(it.first);
+            stream.Push<uint16_t>(it.first);
             it.second.Serialize(stream);
         }
         b.Serialize(stream);
@@ -445,6 +445,8 @@ void ClientThread(sockaddr_in *data) {
 }
 
 int main(int argc, char *argv[]) {
+//    Big Problem
+//    cout << sizeof(vector<int>::size_type) << endl;
     sockInit();
 //    crcInit();
 

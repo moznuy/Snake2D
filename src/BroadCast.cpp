@@ -16,7 +16,7 @@ UdpCatcher::UdpCatcher(uint16_t port) {
     this->port = port;
     this->found_on_localhost = false;
     
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) 
         throw runtime_error("Socket creation");
 
@@ -75,7 +75,7 @@ UdpSender::UdpSender(bool broadcast, uint16_t broadcast_port) {
     this->broadcast = broadcast;
     this->broadcast_port = broadcast_port;
     
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) 
         throw runtime_error("Socket creation"); 
     
@@ -91,7 +91,7 @@ void UdpSender::Send(sockaddr_in* to) {
     if (this->broadcast) {
         memset(&s, 0, sizeof(struct sockaddr_in));
         s.sin_family = AF_INET;
-        s.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+        s.sin_addr.s_addr = htonl(BROADCAST_ADDR);  // INADDR_BROADCAST not working on windows
     } else {
         memcpy(&s, to, sizeof(struct sockaddr_in));
     }
@@ -100,7 +100,7 @@ void UdpSender::Send(sockaddr_in* to) {
     char buffer[256];
     strncpy(buffer, "Searching!!!", 256);
     
-    if (sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *)&s, sizeof(struct sockaddr_in)) < 0)
+    if (sendto(sock, buffer, strlen(buffer) + 1, 0, (struct sockaddr *)&s, sizeof(struct sockaddr_in)) < 0)
         throw runtime_error("Broadcasting error");
 }
 
@@ -114,7 +114,7 @@ TcpServer::TcpServer(uint16_t port, void (*newClient)(int id), void (*newMessage
     this->HandleNewMessage = newMessage;
     this->HandleOldClient = oldClient;
     
-    listening_sock = socket(AF_INET, SOCK_STREAM, 0);
+    listening_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listening_sock < 0) 
         throw runtime_error("Socket creation");
 
@@ -230,7 +230,7 @@ TcpClient::TcpClient(struct sockaddr_in* server_address, void(*newMessage)(const
     this->connection_closed = false;
     this->HandleNewMessage = newMessage;
     
-    sock = socket(AF_INET, SOCK_STREAM, 0);
+    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0) 
         throw runtime_error("Socket creation");
 

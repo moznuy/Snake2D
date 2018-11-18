@@ -10,10 +10,10 @@
 
 ### Steps:
 
-`mkdir release && cd release`
-`cmake -DCMAKE_BUILD_TYPE=Release ..`
-`make`
-`./Snake2D`
+- `mkdir release && cd release`
+- `cmake -DCMAKE_BUILD_TYPE=Release ..`
+- `make`
+- `./Snake2D`
 
 ## Windows
 

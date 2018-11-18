@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 #set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMake")
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
@@ -33,8 +34,8 @@ LIST(APPEND SNAKE2D_SOURCES ${SNAKE2D_HEADERS})
 
 find_package(Threads REQUIRED)
 
-find_package(SDL2 REQUIRED)
-include_directories(${SDL2_INCLUDE_DIRS})  # Maybe DIR on Windows
+find_package(SDL2 2 REQUIRED)
+include_directories(${SDL2_INCLUDE_DIR})  # Maybe DIR on Windows
 
 #include(CTest)
 #enable_testing()
@@ -78,7 +79,7 @@ endif()
 #    message(STATUS "${_variableName}=${${_variableName}}")
 #endforeach()
 
-target_link_libraries(Snake2D ${SDL2_LIBRARIES} Threads::Threads ${PROJECT_LIBS}) # SDL2_LIBRARY on WINDOWS?
+target_link_libraries(Snake2D ${SDL2_LIBRARY} Threads::Threads ${PROJECT_LIBS}) # SDL2_LIBRARY on WINDOWS?
 #configure_file(${PROJECT_SOURCE_DIR}/cmake/Header.h.in ${PROJECT_SOURCE_DIR}/Header.h)
 
 #include(CPack)

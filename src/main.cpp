@@ -445,6 +445,8 @@ void ClientThread(sockaddr_in *data) {
 }
 
 int main(int argc, char *argv[]) {
+
+    cout << sizeof(vector<int>::size_type) << endl;
     sockInit();
 //    crcInit();
 

@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/moznuy/Snake2D.svg?branch=master)](https://travis-ci.org/moznuy/Snake2D)
+
 # Download
 ## Windows
 

@@ -1,0 +1,21 @@
+language: cpp
+compiler: 
+- gcc
+
+os:
+- linux
+
+script:
+- mkdir Release && cd Release && cmake -DCMAKE_BUILD_TYPE=Release .. && make
+
+branches:
+  only:
+  - master
+
+
+addons:
+  apt:
+    packages:
+    - cmake-data
+    - cmake
+

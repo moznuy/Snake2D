@@ -1,3 +1,8 @@
+# Download
+## Windows
+
+[Releases](../../releases)
+
 # Compilation
 ## Linux
 

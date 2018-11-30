@@ -13,10 +13,14 @@
 
 
 #include <cstdlib>
-#include <bits/stdc++.h>
 #include <SDL.h>
 
-#include <unistd.h>
+//#include <unistd.h>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <chrono>
+#include <string>
 
 #include "BroadCast.h"
 #include "Memory.h"
@@ -461,7 +465,7 @@ int main(int argc, char *argv[]) {
         printf("Server not Found. I'm the server now. Acquiring clients:\n");
         serverThread = new thread(ServerThread);
     }
-    usleep(100);
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
     key = 0;
     clientThread = new thread(ClientThread, &server_addr);
     

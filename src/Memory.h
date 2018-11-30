@@ -74,7 +74,7 @@ void Stream::Push(const T &info) {
 
     auto size = GetSize();
     if (size + sizeof(T) > capacity) {
-        Reserve(std::max(sizeType(size * 2), sizeType(size + sizeof(T))));
+        Reserve(max(sizeType(size * 2), sizeType(size + sizeof(T))));
     }
     memcpy(stream + size, &info, sizeof(T));
     size += sizeof(T);

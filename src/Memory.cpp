@@ -4,6 +4,7 @@
  * and open the template in the editor.
  */
 
+#include <algorithm>
 #include "Memory.h"
 
 using namespace std;
